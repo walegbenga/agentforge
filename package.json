@@ -1,0 +1,22 @@
+{
+  "name": "agentforge",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "contracts",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
+    "build": "npm run build --workspace=contracts && npm run build --workspace=backend && npm run build --workspace=frontend",
+    "deploy:contracts": "npm run deploy --workspace=contracts",
+    "test": "npm run test --workspace=contracts"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "@circle-fin/developer-controlled-wallets": "^10.3.1"
+  }
+}
