@@ -160,4 +160,4 @@ Arc's USDC-native fee model was the key differentiator — paying gas in USDC el
 
 ## Team
 
-Built by [Your Name] for the Ignyte × Circle Stablecoin Commerce Stack Challenge.
+Built by Gbenga Ogunbule for the Ignyte × Circle Stablecoin Commerce Stack Challenge.
