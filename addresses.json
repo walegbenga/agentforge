@@ -1,0 +1,16 @@
+{
+  "network": "arcTestnet",
+  "chainId": 2911,
+  "deployedAt": "2026-05-21T17:58:08.915Z",
+  "contracts": {
+    "AgentCapabilityRegistry": "0xc749a117C3222Fee7a000161c01756EEFb027981",
+    "OrchestratorEscrow": "0x4ca8EdA765c2d768d0b0FDe277bf2b973989246c",
+    "USDC": "0x3600000000000000000000000000000000000000"
+  },
+  "arc": {
+    "IdentityRegistry": "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+    "ReputationRegistry": "0x8004B663056A597Dffe9eCcC1965A193B7388713",
+    "ValidationRegistry": "0x8004Cb1BF31DAf7788923b405b754f57acEB4272",
+    "AgenticCommerce": "0x0747EEf0706327138c69792bF28Cd525089e4583"
+  }
+}
