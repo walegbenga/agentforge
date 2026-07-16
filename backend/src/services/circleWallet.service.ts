@@ -1,6 +1,5 @@
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
-import { createPublicClient, createWalletClient, http, parseUnits, formatUnits } from "viem";
-import type { AgentProfile } from "../types/index.js";
+import { createPublicClient, http } from "viem";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -8,13 +7,15 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Load deployed contract addresses
-const addressesPath = path.join(__dirname, "../../../addresses.json");
 let CONTRACT_ADDRESSES: Record<string, any> = {};
-if (fs.existsSync(addressesPath)) {
-  CONTRACT_ADDRESSES = JSON.parse(fs.readFileSync(addressesPath, "utf-8"));
-}
+try {
+  const addressesPath = path.join(__dirname, "../../../addresses.json");
+  if (fs.existsSync(addressesPath)) {
+    CONTRACT_ADDRESSES = JSON.parse(fs.readFileSync(addressesPath, "utf-8"));
+  }
+} catch {}
 
-// Arc Testnet chain config
+// Arc Testnet chain config for viem
 export const arcTestnet = {
   id: 5042002,
   name: "Arc Testnet",
@@ -42,7 +43,7 @@ export class CircleWalletService {
   async createAgentWallet(agentName: string): Promise<{ walletId: string; address: string }> {
     const response = await this.client.createWallets({
       accountType: "SCA",
-      blockchains: ["ARC-TESTNET"],
+      blockchains: ["EVM-TESTNET" as any], // Arc testnet uses EVM-TESTNET
       count: 1,
       walletSetId: this.walletSetId,
       metadata: [
@@ -56,95 +57,88 @@ export class CircleWalletService {
     const wallet = response.data?.wallets?.[0];
     if (!wallet) throw new Error("Failed to create wallet");
 
-    return { walletId: wallet.id, address: wallet.address };
+    return { walletId: wallet.id, address: wallet.address ?? "" };
   }
 
   /**
    * Get USDC balance for a wallet
    */
   async getBalance(walletId: string): Promise<number> {
-    const response = await this.client.getWalletTokenBalance({ id: walletId });
-    const balances = response.data?.tokenBalances ?? [];
+    try {
+      const response = await this.client.listWalletBalance({ id: walletId });
+      const balances = response.data?.tokenBalances ?? [];
 
-    // Find USDC balance
-    const usdc = balances.find(
-      (b: any) =>
-        b.token?.symbol === "USDC" ||
-        b.token?.address?.toLowerCase() === CONTRACT_ADDRESSES.contracts?.USDC?.toLowerCase()
-    );
+      const usdc = balances.find(
+        (b: any) =>
+          b.token?.symbol === "USDC" ||
+          b.token?.address?.toLowerCase() ===
+            CONTRACT_ADDRESSES.contracts?.USDC?.toLowerCase()
+      );
 
-    return usdc ? parseFloat(usdc.amount) : 0;
+      return usdc ? parseFloat(usdc.amount ?? "0") : 0;
+    } catch {
+      return 0;
+    }
   }
 
   /**
-   * Transfer USDC from a developer-controlled agent wallet to another address
+   * Transfer USDC from a developer-controlled agent wallet
    */
   async transferUSDC(params: {
     sourceWalletId: string;
     destinationAddress: string;
-    amount: string; // human-readable USDC e.g. "1.5"
+    amount: string;
   }): Promise<string> {
-    const response = await this.client.createTransaction({
+    const response = await this.client.createDeveloperTransactionTransfer({
       walletId: params.sourceWalletId,
-      tokenAddress: CONTRACT_ADDRESSES.contracts?.USDC,
       destinationAddress: params.destinationAddress,
-      amounts: [params.amount],
+      amount: params.amount,
       fee: { type: "level", config: { feeLevel: "MEDIUM" } },
-    });
+    } as any);
 
-    const txHash = response.data?.transaction?.txHash;
+    const txData = (response.data as any);
+    const txHash = txData?.transaction?.txHash ?? txData?.txHash ?? "";
     if (!txHash) throw new Error("Transfer failed: no txHash returned");
 
     return txHash;
   }
 
   /**
-   * Approve USDC spending for OrchestratorEscrow (called before createTask)
+   * Approve USDC spending for OrchestratorEscrow
    */
   async approveEscrow(params: {
     walletId: string;
-    amount: string; // human-readable USDC
+    amount: string;
   }): Promise<string> {
     const escrowAddress = CONTRACT_ADDRESSES.contracts?.OrchestratorEscrow;
     if (!escrowAddress) throw new Error("Escrow address not found");
 
-    // ERC-20 approve call
-    const approveAbi = [
-      {
-        name: "approve",
-        type: "function",
-        inputs: [
-          { name: "spender", type: "address" },
-          { name: "amount", type: "uint256" },
-        ],
-        outputs: [{ name: "", type: "bool" }],
-      },
-    ];
+    const amountWei = BigInt(Math.floor(parseFloat(params.amount) * 1_000_000)).toString();
 
-    const amountWei = parseUnits(params.amount, 6).toString();
-
-    const response = await this.client.createContractExecutionTransaction({
+    const response = await this.client.createDeveloperTransactionContractExecution({
       walletId: params.walletId,
       contractAddress: CONTRACT_ADDRESSES.contracts?.USDC,
       abiFunctionSignature: "approve(address,uint256)",
       abiParameters: [escrowAddress, amountWei],
       fee: { type: "level", config: { feeLevel: "MEDIUM" } },
-    });
+    } as any);
 
-    return response.data?.transaction?.txHash ?? "";
+    const txData = (response.data as any);
+    return txData?.transaction?.txHash ?? txData?.txHash ?? "";
   }
 
   /**
-   * Wait for a Circle transaction to confirm
+   * Wait for a transaction to confirm on Arc
    */
   async waitForTransaction(txHash: string, maxWaitMs = 30000): Promise<boolean> {
     const start = Date.now();
+    const publicClient = createPublicClient({
+      chain: arcTestnet,
+      transport: http(),
+    });
+
     while (Date.now() - start < maxWaitMs) {
       try {
-        const publicClient = createPublicClient({
-          chain: arcTestnet,
-          transport: http(),
-        });
         const receipt = await publicClient.getTransactionReceipt({
           hash: txHash as `0x${string}`,
         });
@@ -156,16 +150,19 @@ export class CircleWalletService {
   }
 
   /**
-   * Fund a testnet wallet with USDC from faucet
+   * Request testnet USDC from faucet
    */
-  async requestTestnetFunds(walletId: string): Promise<void> {
-    // Circle testnet faucet
-    await this.client.requestTestnetTokens({
-      address: walletId,
-      blockchain: "ARC-TESTNET",
-      native: false,
-      usdc: true,
-    });
+  async requestTestnetFunds(address: string): Promise<void> {
+    try {
+      await (this.client as any).requestTestnetTokens({
+        address,
+        blockchain: "EVM-TESTNET",
+        native: false,
+        usdc: true,
+      });
+    } catch {
+      // Faucet may rate-limit — non-fatal
+    }
   }
 
   async getWallet(walletId: string) {
