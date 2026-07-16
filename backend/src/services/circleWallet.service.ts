@@ -25,7 +25,7 @@ export const arcTestnet = {
 } as const;
 
 export class CircleWalletService {
-  private client: ReturnType<typeof initiateUserControlledWalletsClient>;
+  private client: ReturnType<typeof initiateDeveloperControlledWalletsClient>;
   private walletSetId: string;
 
   constructor() {
