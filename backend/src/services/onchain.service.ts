@@ -13,7 +13,7 @@ import { arcTestnet } from "./circleWallet.service.js";
 import type { AgentCapability } from "../types/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const addressesPath = path.join(__dirname, "../../../addresses.json");
+const addressesPath = path.join(__dirname, "../../addresses.json");
 const addresses = JSON.parse(fs.readFileSync(addressesPath, "utf-8"));
 
 // ── ABIs ─────────────────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let CONTRACT_ADDRESSES: Record<string, any> = {};
 try {
-  const addressesPath = path.join(__dirname, "../../../addresses.json");
+  const addressesPath = path.join(__dirname, "../../addresses.json");
   if (fs.existsSync(addressesPath)) {
     CONTRACT_ADDRESSES = JSON.parse(fs.readFileSync(addressesPath, "utf-8"));
   }
