@@ -1,18 +1,6 @@
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
 import { createPublicClient, http } from "viem";
-import * as fs from "fs";
-import * as path from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-let CONTRACT_ADDRESSES: Record<string, any> = {};
-try {
-  const addressesPath = path.join(__dirname, "../../addresses.json");
-  if (fs.existsSync(addressesPath)) {
-    CONTRACT_ADDRESSES = JSON.parse(fs.readFileSync(addressesPath, "utf-8"));
-  }
-} catch {}
+import { CONTRACT_ADDRESSES } from "../config/addresses.js";
 
 export const arcTestnet = {
   id: 5042002,
@@ -42,17 +30,11 @@ export class CircleWalletService {
       blockchains: ["EVM-TESTNET"],
       count: 1,
       walletSetId: this.walletSetId,
-      metadata: [
-        {
-          name: `AgentForge - ${agentName}`,
-          refId: `agent-${Date.now()}`,
-        },
-      ],
+      metadata: [{ name: `AgentForge - ${agentName}`, refId: `agent-${Date.now()}` }],
     });
 
     const wallet = response.data?.wallets?.[0];
     if (!wallet) throw new Error("Failed to create wallet");
-
     return { walletId: wallet.id, address: wallet.address ?? "" };
   }
 
@@ -60,14 +42,12 @@ export class CircleWalletService {
     try {
       const response = await this.client.getWalletTokenBalance({ id: walletId });
       const balances = response.data?.tokenBalances ?? [];
-
       const usdc = balances.find(
         (b: any) =>
           b.token?.symbol === "USDC" ||
           b.token?.address?.toLowerCase() ===
             CONTRACT_ADDRESSES.contracts?.USDC?.toLowerCase()
       );
-
       return usdc ? parseFloat(usdc.amount ?? "0") : 0;
     } catch {
       return 0;
@@ -85,27 +65,16 @@ export class CircleWalletService {
       amount: params.amount,
       fee: { type: "level", config: { feeLevel: "MEDIUM" } },
     });
-
-    const txHash =
-      response.data?.transaction?.txHash ??
-      response.data?.txHash ??
-      "";
-
+    const txData = response.data as any;
+    const txHash = txData?.transaction?.txHash ?? txData?.txHash ?? "";
     if (!txHash) throw new Error("Transfer failed: no txHash returned");
     return txHash;
   }
 
-  async approveEscrow(params: {
-    walletId: string;
-    amount: string;
-  }): Promise<string> {
+  async approveEscrow(params: { walletId: string; amount: string }): Promise<string> {
     const escrowAddress = CONTRACT_ADDRESSES.contracts?.OrchestratorEscrow;
     if (!escrowAddress) throw new Error("Escrow address not found");
-
-    const amountWei = BigInt(
-      Math.floor(parseFloat(params.amount) * 1_000_000)
-    ).toString();
-
+    const amountWei = BigInt(Math.floor(parseFloat(params.amount) * 1_000_000)).toString();
     const response = await this.client.createContractExecutionTransaction({
       walletId: params.walletId,
       contractAddress: CONTRACT_ADDRESSES.contracts?.USDC,
@@ -113,12 +82,8 @@ export class CircleWalletService {
       abiParameters: [escrowAddress, amountWei],
       fee: { type: "level", config: { feeLevel: "MEDIUM" } },
     });
-
-    return (
-      response.data?.transaction?.txHash ??
-      response.data?.txHash ??
-      ""
-    );
+    const txData = response.data as any;
+    return txData?.transaction?.txHash ?? txData?.txHash ?? "";
   }
 
   async waitForTransaction(txHash: string, maxWaitMs = 30000): Promise<boolean> {
@@ -127,7 +92,6 @@ export class CircleWalletService {
       chain: arcTestnet,
       transport: http(),
     });
-
     while (Date.now() - start < maxWaitMs) {
       try {
         const receipt = await publicClient.getTransactionReceipt({
@@ -148,9 +112,7 @@ export class CircleWalletService {
         native: false,
         usdc: true,
       });
-    } catch {
-      // Faucet may rate-limit — non-fatal
-    }
+    } catch {}
   }
 
   async getWallet(walletId: string) {
