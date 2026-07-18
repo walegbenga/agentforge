@@ -15,7 +15,7 @@ async function addArcTestnetToMetaMask() {
     // First try switching
     await ethereum.request({
       method: "wallet_switchEthereumChain",
-      params: [{ chainId: "0xB5F" }], // 2911 in hex
+      params: [{ chainId: "0x4CE152" }], // 2911 in hex
     });
     return true;
   } catch (switchError: any) {
@@ -26,7 +26,7 @@ async function addArcTestnetToMetaMask() {
           method: "wallet_addEthereumChain",
           params: [
             {
-              chainId: "0xB5F",
+              chainId: "0x4CE152",
               chainName: "Arc Testnet",
               nativeCurrency: {
                 name: "USDC",
@@ -55,12 +55,16 @@ export default function WalletButton() {
   const isWrongNetwork = isConnected && chainId !== arcTestnet.id;
 
   const { data: balance } = useReadContract({
-    address: CONTRACTS.USDC,
-    abi: USDC_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address && chainId === arcTestnet.id },
-  });
+  address: CONTRACTS.USDC,
+  abi: USDC_ABI,
+  functionName: "balanceOf",
+  args: address ? [address] : undefined,
+  query: { 
+    enabled: !!address && chainId === arcTestnet.id,
+    refetchInterval: 30000,
+    staleTime: 20000,
+  },
+});
 
   const balanceUSDC = balance
     ? (Number(balance as bigint) / 1_000_000).toFixed(2)

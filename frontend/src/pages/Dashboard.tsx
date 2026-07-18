@@ -56,20 +56,28 @@ export default function Dashboard() {
   // ── On-chain reads ──────────────────────────────────────────────────────
 
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
-    address: CONTRACTS.USDC,
-    abi: USDC_ABI,
-    functionName: "allowance",
-    args: address ? [address, ESCROW_ADDRESS] : undefined,
-    query: { enabled: !!address },
-  });
+  address: CONTRACTS.USDC,
+  abi: USDC_ABI,
+  functionName: "allowance",
+  args: address ? [address, ESCROW_ADDRESS] : undefined,
+  query: { 
+    enabled: !!address,
+    refetchInterval: 30000, // only refetch every 30 seconds
+    staleTime: 20000,
+  },
+});
 
-  const { data: usdcBalance } = useReadContract({
-    address: CONTRACTS.USDC,
-    abi: USDC_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
+const { data: usdcBalance } = useReadContract({
+  address: CONTRACTS.USDC,
+  abi: USDC_ABI,
+  functionName: "balanceOf",
+  args: address ? [address] : undefined,
+  query: { 
+    enabled: !!address,
+    refetchInterval: 30000,
+    staleTime: 20000,
+  },
+});
 
   // ── USDC Approve ────────────────────────────────────────────────────────
 
