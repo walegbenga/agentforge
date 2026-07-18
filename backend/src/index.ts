@@ -4,8 +4,8 @@ import { fileURLToPath } from "url";
 
 // Load env — works on both Windows (local) and Linux (Railway)
 const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: join(__dirname, "../../.env") });           // local dev
-config({ path: join(process.cwd(), ".env") });             // fallback
+config({ path: join(__dirname, "../../.env") });
+config({ path: join(process.cwd(), ".env") });
 
 console.log("ENV CHECK:");
 console.log("  ANTHROPIC_API_KEY:", process.env.ANTHROPIC_API_KEY ? "✓ loaded" : "✗ missing");
@@ -19,13 +19,37 @@ import { WebSocketServer } from "ws";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
-const HOST = "0.0.0.0"; // Required for Railway — localhost won't work
+const HOST = "0.0.0.0";
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173",
+// ── CORS — allow Vercel frontend ───────────────────────────────────────────
+const allowedOrigins = [
+  "https://agentforged.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  process.env.FRONTEND_URL,
+].filter(Boolean) as string[];
+
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: ${origin} not allowed`));
+  },
   credentials: true,
-}));
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
 app.use(express.json());
+
+// ── Health check — responds immediately ────────────────────────────────────
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
@@ -42,7 +66,6 @@ async function start() {
   console.log("║     AgentForge Backend        ║");
   console.log("╚═══════════════════════════════╝\n");
 
-  // Bind to 0.0.0.0 so Railway can route external traffic
   server.listen(PORT, HOST, () => {
     console.log(`✓ HTTP  → http://${HOST}:${PORT}/api`);
     console.log(`✓ WS    → ws://${HOST}:${PORT}/ws`);
