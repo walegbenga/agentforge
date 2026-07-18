@@ -47,19 +47,40 @@ export class AgentRegistryService {
   private addressIndex: Map<string, string> = new Map(); // address → agent id
 
   async initialize(): Promise<void> {
-    console.log("🤖 Initializing Agent Registry...");
+  console.log("🤖 Initializing Agent Registry...");
 
-    // In production: load from DB. For now seed default agents.
+  // In production, skip Circle wallet creation to avoid slow startup
+  if (process.env.NODE_ENV === "production" || !process.env.CIRCLE_WALLET_SET_ID) {
+    console.log("✓ Agent Registry: running in demo mode (no Circle wallet seeding)");
+    // Seed agents with placeholder wallets
     for (const seed of SEED_AGENTS) {
-      try {
-        await this.registerAgent(seed);
-      } catch (err) {
-        console.warn(`  ⚠ Failed to seed ${seed.name}:`, (err as Error).message);
-      }
+      const agent: AgentProfile = {
+        id: randomUUID(),
+        ...seed,
+        walletAddress: "0x0000000000000000000000000000000000000000",
+        walletId: "demo",
+        reputationScore: 70,
+        jobsCompleted: 0,
+        totalEarned: 0,
+        active: true,
+        registeredAt: new Date().toISOString(),
+      };
+      this.agents.set(agent.id, agent);
     }
-
     console.log(`✓ Agent Registry: ${this.agents.size} agents active`);
+    return;
   }
+
+  // Full Circle wallet creation (local dev only)
+  for (const seed of SEED_AGENTS) {
+    try {
+      await this.registerAgent(seed);
+    } catch (err) {
+      console.warn(`  ⚠ Failed to seed ${seed.name}:`, (err as Error).message);
+    }
+  }
+  console.log(`✓ Agent Registry: ${this.agents.size} agents active`);
+}
 
   async registerAgent(
     params: Pick<AgentProfile, "name" | "description" | "capabilities" | "pricePerTask">
