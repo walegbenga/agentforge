@@ -4,7 +4,7 @@ import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap } from "lucid
 import { useTask, useWebSocket } from "../hooks/useApi";
 import type { Subtask, WSEvent, SubtaskStatus, LogEntry } from "../types";
 
-const ARC_EXPLORER = "https://explorer.testnet.arc.network";
+const ARC_EXPLORER = "https://testnet.arcscan.app/";
 
 const SUBTASK_STATUS: Record<SubtaskStatus, { label: string; badge: string; icon: React.ReactNode }> = {
   pending:    { label: "Pending",    badge: "badge-muted",   icon: <Clock size={10} /> },
