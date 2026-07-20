@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useAccount } from "wagmi";
 import type { Task, AgentProfile, WSEvent } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://localhost:3001/ws`;
-
-// ── API helpers ───────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -21,17 +20,20 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const { address } = useAccount();
 
   const load = useCallback(async () => {
     try {
-      const data = await apiFetch<Task[]>("/tasks");
+      // Filter by connected wallet address
+      const url = address ? `/tasks?address=${address}` : "/tasks";
+      const data = await apiFetch<Task[]>(url);
       setTasks(data);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [address]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -49,7 +51,7 @@ export function useTasks() {
   }, []);
 
   const updateTask = useCallback((updated: Task) => {
-    setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t));
+    setTasks((prev) => prev.map((t) => t.id === updated.id ? { ...t, ...updated } : t));
   }, []);
 
   return { tasks, loading, createTask, updateTask, refresh: load };
@@ -107,7 +109,7 @@ export function useStats() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 10_000);
+    const interval = setInterval(load, 30_000);
     return () => clearInterval(interval);
   }, [load]);
 
@@ -123,6 +125,7 @@ export function useWebSocket(onEvent: (event: WSEvent) => void) {
 
   useEffect(() => {
     let reconnectTimeout: ReturnType<typeof setTimeout>;
+    let attempts = 0;
 
     function connect() {
       const ws = new WebSocket(WS_URL);
@@ -135,8 +138,14 @@ export function useWebSocket(onEvent: (event: WSEvent) => void) {
         } catch {}
       };
 
+      ws.onopen = () => {
+        attempts = 0;
+      };
+
       ws.onclose = () => {
-        reconnectTimeout = setTimeout(connect, 3000);
+        attempts++;
+        const delay = Math.min(1000 * attempts, 10000);
+        reconnectTimeout = setTimeout(connect, delay);
       };
 
       ws.onerror = () => ws.close();

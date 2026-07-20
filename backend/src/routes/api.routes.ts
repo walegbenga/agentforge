@@ -1,7 +1,6 @@
 import { Router, Request, Response } from "express";
 import { orchestrationEngine } from "../services/orchestration.service.js";
 import { agentRegistry } from "../services/agentRegistry.service.js";
-import { onChainService } from "../services/onchain.service.js";
 import { z } from "zod";
 
 const router = Router();
@@ -10,16 +9,14 @@ const router = Router();
 
 const CreateTaskSchema = z.object({
   description: z.string().min(10).max(2000),
-  budget: z.number().int().min(100_000).max(100_000_000), // 0.1 - 100 USDC
+  budget: z.number().int().min(100_000).max(100_000_000),
   requesterAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "Invalid address"),
 });
 
 router.post("/tasks", async (req: Request, res: Response) => {
   try {
     const body = CreateTaskSchema.parse(req.body);
-
     const task = await orchestrationEngine.createAndRunTask(body);
-
     res.status(201).json({ success: true, data: task });
   } catch (err: any) {
     if (err.name === "ZodError") {
@@ -29,9 +26,20 @@ router.post("/tasks", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/tasks", (_req: Request, res: Response) => {
+router.get("/tasks", (req: Request, res: Response) => {
   const tasks = orchestrationEngine.getAllTasks();
-  res.json({ success: true, data: tasks });
+  const { address } = req.query;
+
+  // Filter by wallet address if provided
+  const filtered = address
+    ? tasks.filter(
+        (t) =>
+          t.requesterAddress.toLowerCase() ===
+          (address as string).toLowerCase()
+      )
+    : tasks;
+
+  res.json({ success: true, data: filtered });
 });
 
 router.get("/tasks/:id", (req: Request, res: Response) => {
@@ -57,7 +65,7 @@ const RegisterAgentSchema = z.object({
   name: z.string().min(3).max(64),
   description: z.string().min(10).max(500),
   capabilities: z.array(z.string()).min(1).max(10),
-  pricePerTask: z.number().int().min(100), // USDC micro
+  pricePerTask: z.number().int().min(100),
 });
 
 router.post("/agents", async (req: Request, res: Response) => {
@@ -90,8 +98,8 @@ router.get("/stats", (_req: Request, res: Response) => {
       agents: agents.length,
       tasks: tasks.length,
       completedTasks,
-      totalVolume,          // USDC micro
-      totalEarned,          // USDC micro
+      totalVolume,
+      totalEarned,
       totalJobsCompleted,
       averageReputationScore:
         agents.length > 0

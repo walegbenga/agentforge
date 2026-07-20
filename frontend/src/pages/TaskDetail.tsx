@@ -1,8 +1,10 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap } from "lucide-react";
 import { useTask, useWebSocket } from "../hooks/useApi";
 import type { Subtask, WSEvent, SubtaskStatus, LogEntry } from "../types";
+
+const ARC_EXPLORER = "https://explorer.testnet.arc.network";
 
 const SUBTASK_STATUS: Record<SubtaskStatus, { label: string; badge: string; icon: React.ReactNode }> = {
   pending:    { label: "Pending",    badge: "badge-muted",   icon: <Clock size={10} /> },
@@ -17,13 +19,11 @@ const SUBTASK_STATUS: Record<SubtaskStatus, { label: string; badge: string; icon
 export default function TaskDetail() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
-  const { task, setTask, refresh } = useTask(taskId ?? null);
+  const { task, refresh } = useTask(taskId ?? null);
 
-  // Subscribe to WS updates for this task
   useWebSocket(
     useCallback((event: WSEvent) => {
       if (event.taskId !== taskId) return;
-      // Refresh task on any relevant event
       if (!["connected", "agent:thinking"].includes(event.type)) {
         refresh();
       }
@@ -45,14 +45,11 @@ export default function TaskDetail() {
     .filter((s) => s.status === "settled")
     .reduce((sum, s) => sum + s.budget, 0);
 
+  const hasTxHashes = Object.keys(task.txHashes || {}).length > 0;
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      {/* Back */}
-      <button
-        className="btn btn-ghost"
-        onClick={() => navigate("/")}
-        style={{ marginBottom: 20, fontSize: "0.8rem" }}
-      >
+      <button className="btn btn-ghost" onClick={() => navigate("/")} style={{ marginBottom: 20, fontSize: "0.8rem" }}>
         <ArrowLeft size={14} /> Dashboard
       </button>
 
@@ -72,7 +69,7 @@ export default function TaskDetail() {
           </div>
         </div>
 
-        {/* Stats row */}
+        {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
           <MiniStat label="Budget" value={`$${budgetUSDC}`} color="var(--arc)" />
           <MiniStat label="Allocated" value={`$${allocatedUSDC}`} color="var(--yellow)" />
@@ -80,8 +77,8 @@ export default function TaskDetail() {
           <MiniStat label="Paid Out" value={`$${(totalEarned / 1_000_000).toFixed(4)}`} color="var(--green)" />
         </div>
 
-        {/* Tx hashes */}
-        {Object.keys(task.txHashes).length > 0 && (
+        {/* Transaction hashes */}
+        {hasTxHashes && (
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
             <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>
               On-chain Transactions
@@ -90,7 +87,7 @@ export default function TaskDetail() {
               {Object.entries(task.txHashes).map(([label, hash]) => (
                 <a
                   key={label}
-                  href={`https://explorer.testnet.arc.network/tx/${hash}`}
+                  href={`${ARC_EXPLORER}/tx/${hash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="badge badge-muted"
@@ -102,6 +99,11 @@ export default function TaskDetail() {
             </div>
           </div>
         )}
+
+        {/* Requester */}
+        <div style={{ marginTop: 10, fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+          Submitted by: {task.requesterAddress}
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
@@ -110,7 +112,6 @@ export default function TaskDetail() {
           <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
             Subtasks
           </div>
-
           {task.subtasks.length === 0 ? (
             <div className="card" style={{ textAlign: "center", padding: 32, color: "var(--text-muted)", fontSize: "0.8rem" }}>
               {["decomposing", "pending"].includes(task.status)
@@ -126,7 +127,7 @@ export default function TaskDetail() {
           )}
         </div>
 
-        {/* Orchestration log */}
+        {/* Log */}
         <div>
           <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
             Orchestration Log
@@ -167,9 +168,7 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-            #{index + 1}
-          </span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-muted)" }}>#{index + 1}</span>
           <span className={`badge ${cfg.badge}`}>
             {isActive && <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>}
             {cfg.label}
@@ -185,33 +184,26 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
 
       {subtask.assignedAgent && (
         <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
+          display: "flex", alignItems: "center", gap: 8,
           padding: "8px 10px",
           background: "var(--bg)",
           borderRadius: "var(--radius)",
           border: "1px solid var(--border)",
         }}>
           <div style={{
-            width: 24, height: 24,
-            borderRadius: "50%",
+            width: 24, height: 24, borderRadius: "50%",
             background: "var(--arc-dim)",
             border: "1px solid rgba(0,212,255,0.3)",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: "0.7rem",
             ...(isActive ? { animation: "pulse-glow 2s ease-in-out infinite" } : {}),
-          }}>
-            🤖
-          </div>
+          }}>🤖</div>
           <div>
             <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-primary)" }}>
               {subtask.assignedAgent.name}
             </div>
             <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
               Rep: {subtask.assignedAgent.reputationScore}/100
-              &nbsp;·&nbsp;
-              {subtask.assignedAgent.walletAddress.slice(0, 8)}...{subtask.assignedAgent.walletAddress.slice(-6)}
             </div>
           </div>
           {subtask.status === "settled" && (
@@ -228,27 +220,30 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
             View Deliverable
           </summary>
           <div style={{
-            marginTop: 8,
-            padding: 12,
+            marginTop: 8, padding: 12,
             background: "var(--bg)",
             borderRadius: "var(--radius)",
-            fontSize: "0.75rem",
-            color: "var(--text-secondary)",
-            lineHeight: 1.6,
-            maxHeight: 200,
-            overflow: "auto",
-            fontFamily: "var(--font-mono)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
+            fontSize: "0.75rem", color: "var(--text-secondary)",
+            lineHeight: 1.6, maxHeight: 200, overflow: "auto",
+            fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word",
           }}>
             {subtask.deliverable}
           </div>
         </details>
       )}
 
+      {/* Deliverable hash with Arc explorer link */}
       {subtask.deliverableHash && (
-        <div style={{ marginTop: 8, fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-          Hash: {subtask.deliverableHash.slice(0, 20)}...
+        <div style={{ marginTop: 8, fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", display: "flex", alignItems: "center", gap: 6 }}>
+          <span>Hash: {String(subtask.deliverableHash).slice(0, 20)}...</span>
+          <a
+            href={`${ARC_EXPLORER}/tx/${subtask.deliverableHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--arc)", textDecoration: "none", display: "flex", alignItems: "center", gap: 3 }}
+          >
+            View <ExternalLink size={9} />
+          </a>
         </div>
       )}
     </div>
@@ -264,14 +259,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
   };
 
   return (
-    <div style={{
-      display: "flex",
-      gap: 8,
-      padding: "5px 8px",
-      borderRadius: "var(--radius)",
-      fontSize: "0.72rem",
-      lineHeight: 1.5,
-    }}>
+    <div style={{ display: "flex", gap: 8, padding: "5px 8px", borderRadius: "var(--radius)", fontSize: "0.72rem", lineHeight: 1.5 }}>
       <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", flexShrink: 0, fontSize: "0.65rem", marginTop: 1 }}>
         {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
       </span>
@@ -284,14 +272,9 @@ function LogLine({ entry }: { entry: LogEntry }) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    pending: "badge-muted",
-    decomposing: "badge-yellow",
-    assigning: "badge-arc",
-    executing: "badge-arc",
-    evaluating: "badge-yellow",
-    completed: "badge-green",
-    failed: "badge-red",
-    cancelled: "badge-muted",
+    pending: "badge-muted", decomposing: "badge-yellow", assigning: "badge-arc",
+    executing: "badge-arc", evaluating: "badge-yellow", completed: "badge-green",
+    failed: "badge-red", cancelled: "badge-muted",
   };
   const active = ["decomposing", "assigning", "executing", "evaluating"].includes(status);
   return (
