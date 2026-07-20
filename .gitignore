@@ -22,7 +22,7 @@ contracts/typechain-types/
 recovery_file_*.dat
 
 # Addresses (generated at deploy time)
-addresses.json
+# addresses.json
 
 # Logs
 *.log

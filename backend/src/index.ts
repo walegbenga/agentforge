@@ -13,6 +13,7 @@ console.log("  CIRCLE_API_KEY:", process.env.CIRCLE_API_KEY ? "✓ loaded" : "�
 console.log("  DEPLOYER_PRIVATE_KEY:", process.env.DEPLOYER_PRIVATE_KEY ? "✓ loaded" : "✗ missing");
 
 import express from "express";
+import rateLimit from "express-rate-limit";
 import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -45,6 +46,13 @@ app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
 app.use(express.json());
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // max 50 requests per IP
+  message: { success: false, error: "Too many requests" },
+});
+
+app.use("/api", limiter);
 
 // ── Health check — responds immediately ────────────────────────────────────
 app.get("/api/health", (_req, res) => {
