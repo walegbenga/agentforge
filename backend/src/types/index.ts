@@ -18,8 +18,8 @@ export interface AgentProfile {
   description: string;
   capabilities: AgentCapability[];
   walletAddress: string;    // Circle Developer-Controlled Wallet
-  walletId: string;         // Circle wallet ID
-  erc8004AgentId?: string;  // On-chain identity token ID
+  // ✅ REMOVED: walletId: string;
+  // ✅ REMOVED: erc8004AgentId?: string;
   pricePerTask: number;     // USDC (6 decimals)
   reputationScore: number;  // 0-100
   jobsCompleted: number;

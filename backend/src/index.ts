@@ -58,7 +58,6 @@ async function start() {
   await connectDB();
 
   const { wsService } = await import("./services/websocket.service.js");
-  const { agentRegistry } = await import("./services/agentRegistry.service.js");
   const { default: apiRoutes } = await import("./routes/api.routes.js");
 
   wsService.initialize(wss);
@@ -74,9 +73,7 @@ async function start() {
     console.log(`✓ Ready\n`);
   });
 
-  agentRegistry.initialize().catch((err) => {
-    console.warn("Agent registry init warning:", err.message);
-  });
+  // ✅ REMOVED: agentRegistry.initialize() call since it no longer exists
 
   // Graceful shutdown
   process.on("SIGTERM", async () => {
