@@ -38,7 +38,7 @@ export class OrchestrationEngine {
       createdAt: new Date().toISOString(),
     };
 
-    taskStore.set(taskId, task);
+    await taskStore.set(task);
     this.emit(task, "task:created", {
       taskId,
       description: params.description,
@@ -50,22 +50,22 @@ export class OrchestrationEngine {
       task.error = err.message;
       this.log(task, "error", `Orchestration failed: ${err.message}`);
       this.emit(task, "task:updated", { status: "failed", error: err.message });
-      taskStore.set(task.id, task);
+      taskStore.set(task).catch(console.error);
     });
 
     return task;
   }
 
-  getTask(taskId: string): Task | undefined {
-    return taskStore.get(taskId);
+  async getTask(taskId: string): Promise<Task | undefined> {
+    return await taskStore.get(taskId);
   }
 
-  getAllTasks(): Task[] {
-    return taskStore.getAll();
+  async getAllTasks(): Promise<Task[]> {
+    return await taskStore.getAll();
   }
 
-  getTasksByAddress(address: string): Task[] {
-    return taskStore.getByAddress(address);
+  async getTasksByAddress(address: string): Promise<Task[]> {
+    return await taskStore.getByAddress(address);
   }
 
   private async runOrchestration(task: Task): Promise<void> {
@@ -73,31 +73,31 @@ export class OrchestrationEngine {
 
     task.status = "decomposing";
     this.emit(task, "task:updated", { status: "decomposing" });
-    taskStore.set(task.id, task);
+    await taskStore.set(task);
 
     const decomposition = await this.decomposeTask(task);
 
     task.status = "assigning";
     this.emit(task, "task:updated", { status: "assigning" });
-    taskStore.set(task.id, task);
+    await taskStore.set(task);
 
     await this.assignAgents(task, decomposition);
 
     task.status = "executing";
     this.emit(task, "task:updated", { status: "executing" });
-    taskStore.set(task.id, task);
+    await taskStore.set(task);
 
     await this.executeSubtasks(task);
 
     task.status = "evaluating";
     this.emit(task, "task:updated", { status: "evaluating" });
-    taskStore.set(task.id, task);
+    await taskStore.set(task);
 
     await this.evaluateAndSettle(task);
 
     task.status = "completed";
     task.completedAt = new Date().toISOString();
-    taskStore.set(task.id, task);
+    await taskStore.set(task);
 
     this.emit(task, "task:updated", {
       status: "completed",
@@ -120,7 +120,7 @@ export class OrchestrationEngine {
 
       task.onChainTaskId = taskId;
       task.txHashes["createTask"] = txHash;
-      taskStore.set(task.id, task);
+      await taskStore.set(task);
       this.log(task, "success", `Task locked on Arc: taskId=${taskId}`, { txHash });
     } catch (err) {
       this.log(task, "warning", `On-chain task creation skipped: ${(err as Error).message}`);
@@ -138,7 +138,8 @@ export class OrchestrationEngine {
     ];
 
     const totalBudgetUSDC = task.totalBudget / 1_000_000;
-    const availableAgents = agentRegistry.getAll().map((a) => ({
+    const allAgents = await agentRegistry.getAll();
+    const availableAgents = allAgents.map((a: any) => ({
       name: a.name,
       capabilities: a.capabilities,
       pricePerTask: a.pricePerTask / 1_000_000,
@@ -190,7 +191,7 @@ Rules:
       plan: result.orchestrationPlan,
     });
     this.emit(task, "agent:message", { agent: "Orchestrator", message: result.orchestrationPlan });
-    taskStore.set(task.id, task);
+    await taskStore.set(task);
     return result;
   }
 
@@ -198,7 +199,7 @@ Rules:
     for (let i = 0; i < decomposition.subtasks.length; i++) {
       const sub = decomposition.subtasks[i];
       const budgetMicro = Math.floor(sub.estimatedBudget * 1_000_000);
-      const agent = agentRegistry.getBestAgent(sub.capability as AgentCapability);
+      const agent = await agentRegistry.getBestAgent(sub.capability as AgentCapability);
 
       if (!agent) {
         this.log(task, "warning", `No agent for capability: ${sub.capability}`);
@@ -232,7 +233,7 @@ Rules:
         task.txHashes[`assign-${i}`] = txHash;
       } catch {}
 
-      taskStore.set(task.id, task);
+      await taskStore.set(task);
       this.log(task, "info", `Subtask ${i + 1} → ${agent.name} (${sub.capability})`, {
         budget: sub.estimatedBudget,
         agent: agent.name,
@@ -253,7 +254,7 @@ Rules:
   private async executeSubtask(task: Task, subtask: Subtask): Promise<void> {
     const agent = subtask.assignedAgent!;
     subtask.status = "executing";
-    taskStore.set(task.id, task);
+    await taskStore.set(task);
 
     this.emit(task, "subtask:executing", {
       subtaskIndex: subtask.subtaskIndex,
@@ -285,12 +286,12 @@ Rules:
       subtask.deliverableHash = deliverableHash;
       subtask.status = "submitted";
       subtask.submittedAt = new Date().toISOString();
-      taskStore.set(task.id, task);
+      await taskStore.set(task);
 
       try {
         await onChainService.settleSubtask(task.onChainTaskId!, subtask.subtaskIndex);
         task.txHashes[`settle-${subtask.subtaskIndex}`] = deliverableHash;
-        taskStore.set(task.id, task);
+        await taskStore.set(task);
       } catch {}
 
       this.log(task, "info", `${agent.name} submitted deliverable`, {
@@ -306,7 +307,7 @@ Rules:
     } catch (err) {
       subtask.status = "disputed";
       subtask.error = (err as Error).message;
-      taskStore.set(task.id, task);
+      await taskStore.set(task);
       this.log(task, "error", `${agent.name} failed: ${(err as Error).message}`);
     }
   }
@@ -319,8 +320,8 @@ Rules:
       if (evaluation.approved) {
         subtask.status = "settled";
         subtask.settledAt = new Date().toISOString();
-        agentRegistry.recordCompletion(subtask.assignedAgent!.id, subtask.budget);
-        taskStore.set(task.id, task);
+        await agentRegistry.recordCompletion(subtask.assignedAgent!.id, subtask.budget);
+        await taskStore.set(task);
 
         this.log(task, "success",
           `✓ ${subtask.assignedAgent!.name} settled — score ${evaluation.score}/100`,
@@ -335,8 +336,8 @@ Rules:
         });
       } else {
         subtask.status = "disputed";
-        agentRegistry.recordDispute(subtask.assignedAgent!.id);
-        taskStore.set(task.id, task);
+        await agentRegistry.recordDispute(subtask.assignedAgent!.id);
+        await taskStore.set(task);
 
         this.log(task, "warning",
           `✗ ${subtask.assignedAgent!.name} disputed — ${evaluation.feedback}`

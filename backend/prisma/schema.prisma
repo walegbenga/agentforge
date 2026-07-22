@@ -53,3 +53,19 @@ model Subtask {
   @@index([taskId])
   @@index([status])
 }
+
+model Agent {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  description     String
+  capabilities    String[]
+  walletAddress   String   @unique
+  walletId        String
+  erc8004AgentId  String?
+  pricePerTask    Int
+  reputationScore Int      @default(70)
+  jobsCompleted   Int      @default(0)
+  totalEarned     Int      @default(0)
+  active          Boolean  @default(true)
+  registeredAt    DateTime @default(now())
+}

@@ -63,7 +63,7 @@ class TaskStoreService {
         allocatedBudget: task.allocatedBudget,
         status: task.status,
         txHashes: task.txHashes,
-        orchestrationLog: task.orchestrationLog,
+        orchestrationLog: task.orchestrationLog as any, // <-- FIXED HERE
         error: task.error ?? null,
         completedAt: task.completedAt ? new Date(task.completedAt) : null,
         onChainTaskId: task.onChainTaskId ?? null,
@@ -72,7 +72,7 @@ class TaskStoreService {
         allocatedBudget: task.allocatedBudget,
         status: task.status,
         txHashes: task.txHashes,
-        orchestrationLog: task.orchestrationLog,
+        orchestrationLog: task.orchestrationLog as any, // <-- FIXED HERE
         error: task.error ?? null,
         completedAt: task.completedAt ? new Date(task.completedAt) : null,
         onChainTaskId: task.onChainTaskId ?? null,
