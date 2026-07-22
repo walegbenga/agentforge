@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Task {
+  id               String   @id @default(uuid())
+  onChainTaskId    Int?
+  requesterAddress String
+  description      String
+  totalBudget      Int
+  allocatedBudget  Int      @default(0)
+  status           String   @default("pending")
+  txHashes         Json     @default("{}")
+  orchestrationLog Json     @default("[]")
+  error            String?
+  completedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  subtasks         Subtask[]
+
+  @@index([requesterAddress])
+  @@index([status])
+}
+
+model Subtask {
+  id                  String   @id @default(uuid())
+  taskId              String
+  subtaskIndex        Int
+  description         String
+  capability          String
+  budget              Int
+  status              String   @default("pending")
+  deliverableHash     String?
+  deliverable         String?
+  onChainSubtaskIndex Int?
+  assignedAgentId     String?
+  assignedAgentName   String?
+  assignedAgentWallet String?
+  assignedAgentRep    Int?
+  error               String?
+  assignedAt          DateTime?
+  submittedAt         DateTime?
+  settledAt           DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  task                Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([status])
+}

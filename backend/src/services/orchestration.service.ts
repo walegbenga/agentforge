@@ -4,6 +4,7 @@ import { keccak256, toBytes } from "viem";
 import { agentRegistry } from "./agentRegistry.service.js";
 import { onChainService } from "./onchain.service.js";
 import { wsService } from "./websocket.service.js";
+import { taskStore } from "./taskStore.service.js";
 import type {
   Task,
   Subtask,
@@ -15,12 +16,7 @@ import type {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// In-memory task store (replace with DB in production)
-const taskStore: Map<string, Task> = new Map();
-
 export class OrchestrationEngine {
-
-  // ── Public API ─────────────────────────────────────────────────────────────
 
   async createAndRunTask(params: {
     description: string;
@@ -49,12 +45,12 @@ export class OrchestrationEngine {
       budget: params.budget,
     });
 
-    // Run orchestration async so we can return the task immediately
     this.runOrchestration(task).catch((err) => {
       task.status = "failed";
       task.error = err.message;
       this.log(task, "error", `Orchestration failed: ${err.message}`);
       this.emit(task, "task:updated", { status: "failed", error: err.message });
+      taskStore.set(task.id, task);
     });
 
     return task;
@@ -65,41 +61,44 @@ export class OrchestrationEngine {
   }
 
   getAllTasks(): Task[] {
-    return Array.from(taskStore.values()).sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    return taskStore.getAll();
   }
 
-  // ── Orchestration Pipeline ─────────────────────────────────────────────────
+  getTasksByAddress(address: string): Task[] {
+    return taskStore.getByAddress(address);
+  }
 
   private async runOrchestration(task: Task): Promise<void> {
-    // Step 1: Create on-chain task and lock USDC
     await this.createOnChainTask(task);
 
-    // Step 2: Decompose task into subtasks
     task.status = "decomposing";
     this.emit(task, "task:updated", { status: "decomposing" });
+    taskStore.set(task.id, task);
+
     const decomposition = await this.decomposeTask(task);
 
-    // Step 3: Assign agents to each subtask
     task.status = "assigning";
     this.emit(task, "task:updated", { status: "assigning" });
+    taskStore.set(task.id, task);
+
     await this.assignAgents(task, decomposition);
 
-    // Step 4: Execute all subtasks in parallel
     task.status = "executing";
     this.emit(task, "task:updated", { status: "executing" });
+    taskStore.set(task.id, task);
+
     await this.executeSubtasks(task);
 
-    // Step 5: Evaluate & settle
     task.status = "evaluating";
     this.emit(task, "task:updated", { status: "evaluating" });
+    taskStore.set(task.id, task);
+
     await this.evaluateAndSettle(task);
 
-    // Step 6: Complete
     task.status = "completed";
     task.completedAt = new Date().toISOString();
+    taskStore.set(task.id, task);
+
     this.emit(task, "task:updated", {
       status: "completed",
       completedAt: task.completedAt,
@@ -107,15 +106,10 @@ export class OrchestrationEngine {
     this.log(task, "success", "✓ Task completed successfully");
   }
 
-  // ── Step 1: On-chain Task Creation ────────────────────────────────────────
-
   private async createOnChainTask(task: Task): Promise<void> {
     this.log(task, "info", "Creating on-chain task and locking USDC in escrow...");
-
     try {
-      const approveTx = await onChainService.approveEscrow({
-        amount: task.totalBudget,
-      });
+      const approveTx = await onChainService.approveEscrow({ amount: task.totalBudget });
       task.txHashes["approve"] = approveTx;
       this.log(task, "info", `USDC approved for escrow`, { txHash: approveTx });
 
@@ -126,26 +120,16 @@ export class OrchestrationEngine {
 
       task.onChainTaskId = taskId;
       task.txHashes["createTask"] = txHash;
-      this.log(task, "success", `Task locked on Arc: taskId=${taskId}`, {
-        txHash,
-      });
+      taskStore.set(task.id, task);
+      this.log(task, "success", `Task locked on Arc: taskId=${taskId}`, { txHash });
     } catch (err) {
-      this.log(
-        task,
-        "warning",
-        `On-chain task creation skipped (testnet): ${(err as Error).message}`
-      );
+      this.log(task, "warning", `On-chain task creation skipped: ${(err as Error).message}`);
     }
   }
 
-  // ── Step 2: Task Decomposition ────────────────────────────────────────────
-
   private async decomposeTask(task: Task): Promise<DecompositionResult> {
     this.log(task, "info", "Orchestrator decomposing task...");
-    this.emit(task, "agent:thinking", {
-      agent: "Orchestrator",
-      message: "Analyzing task requirements...",
-    });
+    this.emit(task, "agent:thinking", { agent: "Orchestrator", message: "Analyzing task requirements..." });
 
     const validCapabilities: AgentCapability[] = [
       "research", "data-analysis", "code-review", "content-writing",
@@ -189,7 +173,6 @@ Rules:
 - Max 6 subtasks
 - Each subtask maps to ONE capability
 - Total budget must not exceed ${totalBudgetUSDC} USDC
-- Be specific and actionable in descriptions
 - Return ONLY the JSON object, nothing else`;
 
     const response = await groq.chat.completions.create({
@@ -206,25 +189,17 @@ Rules:
     this.log(task, "success", `Decomposed into ${result.subtasks.length} subtasks`, {
       plan: result.orchestrationPlan,
     });
-    this.emit(task, "agent:message", {
-      agent: "Orchestrator",
-      message: result.orchestrationPlan,
-    });
-
+    this.emit(task, "agent:message", { agent: "Orchestrator", message: result.orchestrationPlan });
+    taskStore.set(task.id, task);
     return result;
   }
 
-  // ── Step 3: Agent Assignment ───────────────────────────────────────────────
-
-  private async assignAgents(
-    task: Task,
-    decomposition: DecompositionResult
-  ): Promise<void> {
+  private async assignAgents(task: Task, decomposition: DecompositionResult): Promise<void> {
     for (let i = 0; i < decomposition.subtasks.length; i++) {
       const sub = decomposition.subtasks[i];
       const budgetMicro = Math.floor(sub.estimatedBudget * 1_000_000);
-
       const agent = agentRegistry.getBestAgent(sub.capability as AgentCapability);
+
       if (!agent) {
         this.log(task, "warning", `No agent for capability: ${sub.capability}`);
         continue;
@@ -245,7 +220,6 @@ Rules:
       task.subtasks.push(subtask);
       task.allocatedBudget += budgetMicro;
 
-      // Assign on-chain
       try {
         const txHash = await onChainService.assignSubtask({
           taskId: task.onChainTaskId!,
@@ -256,17 +230,13 @@ Rules:
         });
         subtask.onChainSubtaskIndex = i;
         task.txHashes[`assign-${i}`] = txHash;
-      } catch {
-        // Non-fatal for testnet
-      }
+      } catch {}
 
-      this.log(
-        task,
-        "info",
-        `Subtask ${i + 1} → ${agent.name} (${sub.capability})`,
-        { budget: sub.estimatedBudget, agent: agent.name }
-      );
-
+      taskStore.set(task.id, task);
+      this.log(task, "info", `Subtask ${i + 1} → ${agent.name} (${sub.capability})`, {
+        budget: sub.estimatedBudget,
+        agent: agent.name,
+      });
       this.emit(task, "subtask:assigned", {
         subtaskIndex: i,
         agentName: agent.name,
@@ -276,17 +246,15 @@ Rules:
     }
   }
 
-  // ── Step 4: Subtask Execution ─────────────────────────────────────────────
-
   private async executeSubtasks(task: Task): Promise<void> {
-    await Promise.all(
-      task.subtasks.map((subtask) => this.executeSubtask(task, subtask))
-    );
+    await Promise.all(task.subtasks.map((s) => this.executeSubtask(task, s)));
   }
 
   private async executeSubtask(task: Task, subtask: Subtask): Promise<void> {
     const agent = subtask.assignedAgent!;
     subtask.status = "executing";
+    taskStore.set(task.id, task);
+
     this.emit(task, "subtask:executing", {
       subtaskIndex: subtask.subtaskIndex,
       agentName: agent.name,
@@ -297,17 +265,12 @@ Rules:
     });
 
     try {
-      const systemPrompt = this.buildAgentSystemPrompt(
-        agent.name,
-        subtask.capability
-      );
-
       const response = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         max_tokens: 2000,
         temperature: 0.5,
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: this.buildAgentSystemPrompt(agent.name, subtask.capability) },
           {
             role: "user",
             content: `TASK CONTEXT: ${task.description}\n\nYOUR SUBTASK: ${subtask.description}\n\nDeliver your work now. Be thorough and specific.`,
@@ -322,23 +285,18 @@ Rules:
       subtask.deliverableHash = deliverableHash;
       subtask.status = "submitted";
       subtask.submittedAt = new Date().toISOString();
+      taskStore.set(task.id, task);
 
-      // Submit deliverable hash on-chain
       try {
-        await onChainService.settleSubtask(
-          task.onChainTaskId!,
-          subtask.subtaskIndex
-        );
+        await onChainService.settleSubtask(task.onChainTaskId!, subtask.subtaskIndex);
         task.txHashes[`settle-${subtask.subtaskIndex}`] = deliverableHash;
-      } catch {
-        // Non-fatal
-      }
+        taskStore.set(task.id, task);
+      } catch {}
 
       this.log(task, "info", `${agent.name} submitted deliverable`, {
         hash: deliverableHash,
         preview: deliverable.slice(0, 100) + "...",
       });
-
       this.emit(task, "subtask:submitted", {
         subtaskIndex: subtask.subtaskIndex,
         agentName: agent.name,
@@ -348,35 +306,26 @@ Rules:
     } catch (err) {
       subtask.status = "disputed";
       subtask.error = (err as Error).message;
-      this.log(
-        task,
-        "error",
-        `${agent.name} failed: ${(err as Error).message}`
-      );
+      taskStore.set(task.id, task);
+      this.log(task, "error", `${agent.name} failed: ${(err as Error).message}`);
     }
   }
-
-  // ── Step 5: Evaluation & Settlement ──────────────────────────────────────
 
   private async evaluateAndSettle(task: Task): Promise<void> {
     for (const subtask of task.subtasks) {
       if (subtask.status !== "submitted") continue;
-
       const evaluation = await this.evaluateDeliverable(task, subtask);
 
       if (evaluation.approved) {
         subtask.status = "settled";
         subtask.settledAt = new Date().toISOString();
-
         agentRegistry.recordCompletion(subtask.assignedAgent!.id, subtask.budget);
+        taskStore.set(task.id, task);
 
-        this.log(
-          task,
-          "success",
+        this.log(task, "success",
           `✓ ${subtask.assignedAgent!.name} settled — score ${evaluation.score}/100`,
           { payout: subtask.budget / 1_000_000 }
         );
-
         this.emit(task, "subtask:settled", {
           subtaskIndex: subtask.subtaskIndex,
           agentName: subtask.assignedAgent!.name,
@@ -387,13 +336,11 @@ Rules:
       } else {
         subtask.status = "disputed";
         agentRegistry.recordDispute(subtask.assignedAgent!.id);
+        taskStore.set(task.id, task);
 
-        this.log(
-          task,
-          "warning",
+        this.log(task, "warning",
           `✗ ${subtask.assignedAgent!.name} disputed — ${evaluation.feedback}`
         );
-
         this.emit(task, "subtask:disputed", {
           subtaskIndex: subtask.subtaskIndex,
           reason: evaluation.feedback,
@@ -402,70 +349,46 @@ Rules:
     }
   }
 
-  private async evaluateDeliverable(
-    task: Task,
-    subtask: Subtask
-  ): Promise<EvaluationResult> {
+  private async evaluateDeliverable(task: Task, subtask: Subtask): Promise<EvaluationResult> {
     const response = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       max_tokens: 500,
       temperature: 0.1,
-      messages: [
-        {
-          role: "user",
-          content: `Evaluate this deliverable for quality and relevance.
+      messages: [{
+        role: "user",
+        content: `Evaluate this deliverable for quality and relevance.
 
 ORIGINAL TASK: ${task.description}
 SUBTASK: ${subtask.description}
 DELIVERABLE: ${subtask.deliverable}
 
-Return ONLY valid JSON (no markdown, no backticks):
+Return ONLY valid JSON (no markdown):
 {
   "approved": <true/false>,
   "score": <0-100>,
   "feedback": "<brief evaluation>"
 }`,
-        },
-      ],
+      }],
     });
 
     const text = response.choices[0]?.message?.content ?? "";
     const clean = text.replace(/```json|```/g, "").trim();
     const result = JSON.parse(clean);
-
-    return {
-      ...result,
-      deliverableHash: subtask.deliverableHash!,
-    };
+    return { ...result, deliverableHash: subtask.deliverableHash! };
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  private buildAgentSystemPrompt(
-    agentName: string,
-    capability: AgentCapability
-  ): string {
+  private buildAgentSystemPrompt(agentName: string, capability: AgentCapability): string {
     const personas: Record<AgentCapability, string> = {
-      research:
-        "You are ResearchBot, an expert at deep web research, source aggregation, and comprehensive information gathering.",
-      "data-analysis":
-        "You are AnalyticsBot, specializing in data analysis, statistical reasoning, and pattern recognition.",
-      "code-review":
-        "You are CodeReviewBot, an expert code reviewer focused on quality, security, and best practices.",
-      "content-writing":
-        "You are WriterBot, creating compelling, accurate, and well-structured written content.",
-      summarization:
-        "You are SummaryBot, distilling complex information into clear, concise summaries.",
-      translation:
-        "You are TranslationBot, providing accurate and culturally-aware translations.",
-      "fact-checking":
-        "You are FactBot, verifying claims and ensuring factual accuracy with cited reasoning.",
-      "math-reasoning":
-        "You are MathBot, solving mathematical problems and quantitative challenges step-by-step.",
-      "image-analysis":
-        "You are VisionBot, analyzing and describing visual content in detail.",
-      planning:
-        "You are PlannerBot, creating strategic, actionable plans and structured workflows.",
+      research: "You are ResearchBot, an expert at deep web research, source aggregation, and comprehensive information gathering.",
+      "data-analysis": "You are AnalyticsBot, specializing in data analysis, statistical reasoning, and pattern recognition.",
+      "code-review": "You are CodeReviewBot, an expert code reviewer focused on quality, security, and best practices.",
+      "content-writing": "You are WriterBot, creating compelling, accurate, and well-structured written content.",
+      summarization: "You are SummaryBot, distilling complex information into clear, concise summaries.",
+      translation: "You are TranslationBot, providing accurate and culturally-aware translations.",
+      "fact-checking": "You are FactBot, verifying claims and ensuring factual accuracy with cited reasoning.",
+      "math-reasoning": "You are MathBot, solving mathematical problems and quantitative challenges step-by-step.",
+      "image-analysis": "You are VisionBot, analyzing and describing visual content in detail.",
+      planning: "You are PlannerBot, creating strategic, actionable plans and structured workflows.",
     };
 
     return `${personas[capability] || `You are ${agentName}, an AI specialist.`}
@@ -475,22 +398,10 @@ Your work is evaluated on-chain and directly impacts your reputation score.
 Be thorough, accurate, and professional. Deliver real value.`;
   }
 
-  private log(
-    task: Task,
-    level: LogEntry["level"],
-    message: string,
-    data?: Record<string, unknown>
-  ): void {
-    const entry: LogEntry = {
-      timestamp: new Date().toISOString(),
-      level,
-      message,
-      data,
-    };
+  private log(task: Task, level: LogEntry["level"], message: string, data?: Record<string, unknown>): void {
+    const entry: LogEntry = { timestamp: new Date().toISOString(), level, message, data };
     task.orchestrationLog.push(entry);
-    console.log(
-      `[${task.id.slice(0, 8)}] [${level.toUpperCase()}] ${message}`
-    );
+    console.log(`[${task.id.slice(0, 8)}] [${level.toUpperCase()}] ${message}`);
     this.emit(task, "log:entry", entry);
   }
 

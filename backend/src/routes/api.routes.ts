@@ -5,8 +5,6 @@ import { z } from "zod";
 
 const router = Router();
 
-// ── Tasks ─────────────────────────────────────────────────────────────────────
-
 const CreateTaskSchema = z.object({
   description: z.string().min(10).max(2000),
   budget: z.number().int().min(100_000).max(100_000_000),
@@ -19,27 +17,19 @@ router.post("/tasks", async (req: Request, res: Response) => {
     const task = await orchestrationEngine.createAndRunTask(body);
     res.status(201).json({ success: true, data: task });
   } catch (err: any) {
-    if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, error: err.errors });
-    }
+    if (err.name === "ZodError") return res.status(400).json({ success: false, error: err.errors });
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 router.get("/tasks", (req: Request, res: Response) => {
-  const tasks = orchestrationEngine.getAllTasks();
   const { address } = req.query;
 
-  // Filter by wallet address if provided
-  const filtered = address
-    ? tasks.filter(
-        (t) =>
-          t.requesterAddress.toLowerCase() ===
-          (address as string).toLowerCase()
-      )
-    : tasks;
+  const tasks = address
+    ? orchestrationEngine.getTasksByAddress(address as string)
+    : orchestrationEngine.getAllTasks();
 
-  res.json({ success: true, data: filtered });
+  res.json({ success: true, data: tasks });
 });
 
 router.get("/tasks/:id", (req: Request, res: Response) => {
@@ -48,11 +38,8 @@ router.get("/tasks/:id", (req: Request, res: Response) => {
   res.json({ success: true, data: task });
 });
 
-// ── Agents ────────────────────────────────────────────────────────────────────
-
 router.get("/agents", (_req: Request, res: Response) => {
-  const agents = agentRegistry.getAll();
-  res.json({ success: true, data: agents });
+  res.json({ success: true, data: agentRegistry.getAll() });
 });
 
 router.get("/agents/:id", (req: Request, res: Response) => {
@@ -74,19 +61,14 @@ router.post("/agents", async (req: Request, res: Response) => {
     const agent = await agentRegistry.registerAgent(body as any);
     res.status(201).json({ success: true, data: agent });
   } catch (err: any) {
-    if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, error: err.errors });
-    }
+    if (err.name === "ZodError") return res.status(400).json({ success: false, error: err.errors });
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ── Stats ─────────────────────────────────────────────────────────────────────
-
 router.get("/stats", (_req: Request, res: Response) => {
   const agents = agentRegistry.getAll();
   const tasks = orchestrationEngine.getAllTasks();
-
   const totalEarned = agents.reduce((s, a) => s + a.totalEarned, 0);
   const totalJobsCompleted = agents.reduce((s, a) => s + a.jobsCompleted, 0);
   const completedTasks = tasks.filter((t) => t.status === "completed").length;
@@ -101,15 +83,12 @@ router.get("/stats", (_req: Request, res: Response) => {
       totalVolume,
       totalEarned,
       totalJobsCompleted,
-      averageReputationScore:
-        agents.length > 0
-          ? agents.reduce((s, a) => s + a.reputationScore, 0) / agents.length
-          : 0,
+      averageReputationScore: agents.length > 0
+        ? agents.reduce((s, a) => s + a.reputationScore, 0) / agents.length
+        : 0,
     },
   });
 });
-
-// ── Health ────────────────────────────────────────────────────────────────────
 
 router.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

@@ -2,7 +2,6 @@ import { config } from "dotenv";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
-// Load env — works on both Windows (local) and Linux (Railway)
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: join(__dirname, "../../.env") });
 config({ path: join(process.cwd(), ".env") });
@@ -11,18 +10,18 @@ console.log("ENV CHECK:");
 console.log("  ANTHROPIC_API_KEY:", process.env.ANTHROPIC_API_KEY ? "✓ loaded" : "✗ missing");
 console.log("  CIRCLE_API_KEY:", process.env.CIRCLE_API_KEY ? "✓ loaded" : "✗ missing");
 console.log("  DEPLOYER_PRIVATE_KEY:", process.env.DEPLOYER_PRIVATE_KEY ? "✓ loaded" : "✗ missing");
+console.log("  DATABASE_URL:", process.env.DATABASE_URL ? "✓ loaded" : "✗ missing");
 
 import express from "express";
-import rateLimit from "express-rate-limit";
 import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
+import { connectDB, disconnectDB } from "./services/db.service.js";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
 const HOST = "0.0.0.0";
 
-// ── CORS — allow Vercel frontend ───────────────────────────────────────────
 const allowedOrigins = [
   "https://agentforged.vercel.app",
   "http://localhost:5173",
@@ -44,17 +43,9 @@ const corsOptions: cors.CorsOptions = {
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
-
 app.use(express.json());
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // max 50 requests per IP
-  message: { success: false, error: "Too many requests" },
-});
 
-app.use("/api", limiter);
-
-// ── Health check — responds immediately ────────────────────────────────────
+// Health check — responds immediately
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
@@ -63,6 +54,9 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
 async function start() {
+  // Connect to database first
+  await connectDB();
+
   const { wsService } = await import("./services/websocket.service.js");
   const { agentRegistry } = await import("./services/agentRegistry.service.js");
   const { default: apiRoutes } = await import("./routes/api.routes.js");
@@ -82,6 +76,14 @@ async function start() {
 
   agentRegistry.initialize().catch((err) => {
     console.warn("Agent registry init warning:", err.message);
+  });
+
+  // Graceful shutdown
+  process.on("SIGTERM", async () => {
+    console.log("SIGTERM received — shutting down gracefully");
+    server.close();
+    await disconnectDB();
+    process.exit(0);
   });
 }
 
