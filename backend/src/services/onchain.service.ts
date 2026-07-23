@@ -45,7 +45,7 @@ export class OnChainService {
   constructor() {
     this.publicClient = createPublicClient({
       chain: arcTestnet,
-      transport: http(process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network"),
+      transport: http(process.env.ARC_RPC_URL || "https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"),
     });
 
     const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
