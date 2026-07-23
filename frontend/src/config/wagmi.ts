@@ -13,7 +13,7 @@ export const arcTestnet = defineChain({
   },
   rpcUrls: {
     default: { http: ["https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"] },
-    public: { http: ["https://rpc.testnet.arc.network "] },
+    public: { http: ["https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"] },
   },
   blockExplorers: {
     default: {
