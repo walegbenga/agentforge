@@ -170,17 +170,19 @@ router.get("/stats/me", async (req: Request, res: Response) => {
     const myAgentsCount = myAgents.length;
     const myJobsCompleted = myAgents.reduce((sum, a) => sum + a.jobsCompleted, 0);
 
-    // 2. Count completed tasks for this wallet
+    // 2. Count completed tasks for this wallet (✅ CASE-INSENSITIVE)
     const myCompletedTasks = await prisma.task.count({
       where: { 
-        requesterAddress: normalizedAddress, 
+        requesterAddress: { equals: normalizedAddress, mode: "insensitive" }, 
         status: "completed" 
       },
     });
 
-    // 3. Calculate total volume for this wallet's tasks
+    // 3. Calculate total volume for this wallet's tasks (✅ CASE-INSENSITIVE)
     const myTasksVolume = await prisma.task.findMany({
-      where: { requesterAddress: normalizedAddress },
+      where: { 
+        requesterAddress: { equals: normalizedAddress, mode: "insensitive" } 
+      },
       select: { totalBudget: true },
     });
     const myTotalVolume = myTasksVolume.reduce((sum, t) => sum + t.totalBudget, 0);

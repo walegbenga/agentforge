@@ -25,10 +25,13 @@ export class OrchestrationEngine {
     requesterAddress: string;
   }): Promise<Task> {
     const taskId = randomUUID();
+    
+    // ✅ ALWAYS NORMALIZE ADDRESSES TO LOWERCASE FOR CONSISTENT DATABASE MATCHING
+    const normalizedAddress = params.requesterAddress.toLowerCase();
 
     const task: Task = {
       id: taskId,
-      requesterAddress: params.requesterAddress,
+      requesterAddress: normalizedAddress, // ✅ Use normalizedAddress
       description: params.description,
       totalBudget: params.budget,
       allocatedBudget: 0,
@@ -39,8 +42,8 @@ export class OrchestrationEngine {
       createdAt: new Date().toISOString(),
     };
 
-    // ✅ AUTO-REGISTER the task requester as an agent
-    await agentRegistry.getOrCreateAgent(params.requesterAddress);
+    // ✅ AUTO-REGISTER the task requester as an agent (using normalized address)
+    await agentRegistry.getOrCreateAgent(normalizedAddress);
 
     await taskStore.set(task);
     this.emit(task, "task:created", {
@@ -69,7 +72,8 @@ export class OrchestrationEngine {
   }
 
   async getTasksByAddress(address: string): Promise<Task[]> {
-    return await taskStore.getByAddress(address);
+    // ✅ Normalize address when searching to ensure exact matches
+    return await taskStore.getByAddress(address.toLowerCase());
   }
 
   // ✅ NEW: Agent claims a pending subtask
