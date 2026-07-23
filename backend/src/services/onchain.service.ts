@@ -131,7 +131,7 @@ export class OnChainService {
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
     
     // Find the TaskCreated event log
-    const log = receipt.logs.find(l => l.topics.length > 1 && l.topics[0] === keccak256(toBytes("TaskCreated(uint256,address,uint256)")));
+    const log = receipt.logs.find((l: any) => l.topics.length > 1 && l.topics[0] === keccak256(toBytes("TaskCreated(uint256,address,uint256)")));
     
     // topics[1] is the indexed uint256 taskId. Convert hex to decimal string safely.
     const rawTaskId = log?.topics[1];
