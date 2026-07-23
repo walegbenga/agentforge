@@ -57,7 +57,7 @@ export class OnChainService {
     this.orchestratorAccount = privateKeyToAccount(privateKey as `0x${string}`);
     this.walletClient = createWalletClient({
       chain: arcTestnet,
-      transport: http(process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network"),
+      transport: http(process.env.ARC_RPC_URL || "https://https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"),
       account: this.orchestratorAccount,
     });
 
