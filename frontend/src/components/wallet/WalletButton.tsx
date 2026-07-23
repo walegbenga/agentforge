@@ -33,7 +33,7 @@ async function addArcTestnetToMetaMask() {
                 symbol: "USDC",
                 decimals: 6,
               },
-              rpcUrls: ["https://https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"],
+              rpcUrls: ["https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"],
               blockExplorerUrls: ["https://explorer.testnet.arc.network"],
             },
           ],
