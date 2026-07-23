@@ -129,7 +129,7 @@ export class OnChainService {
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
     const log = receipt.logs[0];
     const taskId = log?.topics[1] ? parseInt(log.topics[1], 16) : Date.now();
-    return { taskId, txHash: hash };
+    return { taskId: result.taskId.toString(), txHash: hash };
   }
 
   async assignSubtask(params: { taskId: number; agentWallet: `0x${string}`; capability: AgentCapability; budget: number; description: string }): Promise<string> {

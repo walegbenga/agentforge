@@ -69,7 +69,7 @@ export interface Subtask {
 
 export interface Task {
   id: string;
-  onChainTaskId?: number;
+  onChainTaskId?: string;
   requesterAddress: string;
   description: string;
   totalBudget: number;      // USDC (6 decimals)
