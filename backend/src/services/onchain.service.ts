@@ -119,20 +119,29 @@ export class OnChainService {
     return hash;
   }
 
-  async createTask(params: { description: string; budget: number }): Promise<{ taskId: number; txHash: string }> {
+  // ✅ FIXED: Return type is now { taskId: string; txHash: string }
+  async createTask(params: { description: string; budget: number }): Promise<{ taskId: string; txHash: string }> {
     const hash = await this.getWalletClient().writeContract({
       address: addresses.contracts.OrchestratorEscrow as `0x${string}`,
       abi: ESCROW_ABI,
       functionName: "createTask",
       args: [params.description, BigInt(params.budget)],
     });
+    
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
-    const log = receipt.logs[0];
-    const taskId = log?.topics[1] ? parseInt(log.topics[1], 16) : Date.now();
-    return { taskId: result.taskId.toString(), txHash: hash };
+    
+    // Find the TaskCreated event log
+    const log = receipt.logs.find(l => l.topics.length > 1 && l.topics[0] === keccak256(toBytes("TaskCreated(uint256,address,uint256)")));
+    
+    // topics[1] is the indexed uint256 taskId. Convert hex to decimal string safely.
+    const rawTaskId = log?.topics[1];
+    const taskIdString = rawTaskId ? BigInt(rawTaskId).toString() : Date.now().toString();
+    
+    return { taskId: taskIdString, txHash: hash };
   }
 
-  async assignSubtask(params: { taskId: number; agentWallet: `0x${string}`; capability: AgentCapability; budget: number; description: string }): Promise<string> {
+  // ✅ FIXED: taskId param is now string
+  async assignSubtask(params: { taskId: string; agentWallet: `0x${string}`; capability: AgentCapability; budget: number; description: string }): Promise<string> {
     const capHash = keccak256(toBytes(params.capability)) as `0x${string}`;
     const hash = await this.getWalletClient().writeContract({
       address: addresses.contracts.OrchestratorEscrow as `0x${string}`,
@@ -144,7 +153,8 @@ export class OnChainService {
     return hash;
   }
 
-  async settleSubtask(taskId: number, subtaskIndex: number): Promise<string> {
+  // ✅ FIXED: taskId param is now string
+  async settleSubtask(taskId: string, subtaskIndex: number): Promise<string> {
     const hash = await this.getWalletClient().writeContract({
       address: addresses.contracts.OrchestratorEscrow as `0x${string}`,
       abi: ESCROW_ABI,
@@ -155,7 +165,8 @@ export class OnChainService {
     return hash;
   }
 
-  async disputeSubtask(taskId: number, subtaskIndex: number): Promise<string> {
+  // ✅ FIXED: taskId param is now string
+  async disputeSubtask(taskId: string, subtaskIndex: number): Promise<string> {
     const hash = await this.getWalletClient().writeContract({
       address: addresses.contracts.OrchestratorEscrow as `0x${string}`,
       abi: ESCROW_ABI,
@@ -166,7 +177,8 @@ export class OnChainService {
     return hash;
   }
 
-  async getTask(taskId: number) {
+  // ✅ FIXED: taskId param is now string
+  async getTask(taskId: string) {
     return this.publicClient.readContract({
       address: addresses.contracts.OrchestratorEscrow as `0x${string}`,
       abi: ESCROW_ABI,

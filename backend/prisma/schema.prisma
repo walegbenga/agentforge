@@ -9,7 +9,7 @@ datasource db {
 
 model Task {
   id               String   @id @default(uuid())
-  onChainTaskId    Int?
+  onChainTaskId    String?
   requesterAddress String
   description      String
   totalBudget      Int
