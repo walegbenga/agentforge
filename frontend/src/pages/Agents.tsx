@@ -1,6 +1,7 @@
+import { useAccount } from "wagmi";
 import { useAgents } from "../hooks/useApi";
 import type { AgentProfile } from "../types";
-import { Bot, Star, Briefcase, DollarSign } from "lucide-react";
+import { Bot, Star, Briefcase, DollarSign, Wallet } from "lucide-react";
 
 const CAPABILITY_COLORS: Record<string, string> = {
   research:         "badge-arc",
@@ -16,7 +17,20 @@ const CAPABILITY_COLORS: Record<string, string> = {
 };
 
 export default function Agents() {
+  const { isConnected } = useAccount(); // ✅ Added
   const { agents, loading } = useAgents();
+
+  // ✅ STRICT GUARD: Hide everything if not connected
+  if (!isConnected) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 400, gap: 16 }}>
+        <Wallet size={48} color="var(--text-muted)" style={{ opacity: 0.5 }} />
+        <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.9rem", textAlign: "center" }}>
+          Connect your wallet to view your agent profile
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useCallback } from "react";
-import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap } from "lucide-react";
+import { useAccount } from "wagmi";
+import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap, Wallet } from "lucide-react";
 import { useTask, useWebSocket } from "../hooks/useApi";
 import type { Subtask, WSEvent, SubtaskStatus, LogEntry } from "../types";
 
@@ -19,6 +20,7 @@ const SUBTASK_STATUS: Record<SubtaskStatus, { label: string; badge: string; icon
 export default function TaskDetail() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
+  const { isConnected } = useAccount(); // ✅ Added
   const { task, refresh } = useTask(taskId ?? null);
 
   useWebSocket(
@@ -29,6 +31,21 @@ export default function TaskDetail() {
       }
     }, [taskId, refresh])
   );
+
+  // ✅ STRICT GUARD: Hide everything if not connected
+  if (!isConnected) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: 400, gap: 16 }}>
+        <Wallet size={48} color="var(--text-muted)" style={{ opacity: 0.5 }} />
+        <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.9rem", textAlign: "center" }}>
+          Connect your wallet to view task details
+        </div>
+        <button className="btn btn-primary" onClick={() => navigate("/")}>
+          Go to Dashboard
+        </button>
+      </div>
+    );
+  }
 
   if (!task) {
     return (
@@ -95,7 +112,7 @@ export default function TaskDetail() {
                 >
                   {label} <ExternalLink size={9} />
                 </a>
-              ))}
+                ))}
             </div>
           </div>
         )}
@@ -232,7 +249,6 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
         </details>
       )}
 
-      {/* Deliverable hash with Arc explorer link */}
       {subtask.deliverableHash && (
         <div style={{ marginTop: 8, fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", display: "flex", alignItems: "center", gap: 6 }}>
           <span>Hash: {String(subtask.deliverableHash).slice(0, 20)}...</span>

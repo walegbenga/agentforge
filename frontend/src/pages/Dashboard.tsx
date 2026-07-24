@@ -53,33 +53,29 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [liveEvents, setLiveEvents] = useState<Array<WSEvent & { id: string }>>([]);
 
-  // ── On-chain reads ──────────────────────────────────────────────────────
-
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
-  address: CONTRACTS.USDC,
-  abi: USDC_ABI,
-  functionName: "allowance",
-  args: address ? [address, ESCROW_ADDRESS] : undefined,
-  query: { 
-    enabled: !!address,
-    refetchInterval: 30000, // only refetch every 30 seconds
-    staleTime: 20000,
-  },
-});
+    address: CONTRACTS.USDC,
+    abi: USDC_ABI,
+    functionName: "allowance",
+    args: address ? [address, ESCROW_ADDRESS] : undefined,
+    query: { 
+      enabled: !!address,
+      refetchInterval: 30000,
+      staleTime: 20000,
+    },
+  });
 
-const { data: usdcBalance } = useReadContract({
-  address: CONTRACTS.USDC,
-  abi: USDC_ABI,
-  functionName: "balanceOf",
-  args: address ? [address] : undefined,
-  query: { 
-    enabled: !!address,
-    refetchInterval: 30000,
-    staleTime: 20000,
-  },
-});
-
-  // ── USDC Approve ────────────────────────────────────────────────────────
+  const { data: usdcBalance } = useReadContract({
+    address: CONTRACTS.USDC,
+    abi: USDC_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { 
+      enabled: !!address,
+      refetchInterval: 30000,
+      staleTime: 20000,
+    },
+  });
 
   const {
     writeContract: approveUSDC,
@@ -92,7 +88,6 @@ const { data: usdcBalance } = useReadContract({
     query: { enabled: !!approveTxHash },
   });
 
-  // When approval confirmed → proceed to task creation
   useEffect(() => {
     if (approvalConfirmed && step === "waiting-approval") {
       setStep("approval-confirmed");
@@ -101,7 +96,6 @@ const { data: usdcBalance } = useReadContract({
     }
   }, [approvalConfirmed]);
 
-  // Handle approve wallet errors
   useEffect(() => {
     if (approveError) {
       setError(
@@ -112,8 +106,6 @@ const { data: usdcBalance } = useReadContract({
       setStep("error");
     }
   }, [approveError]);
-
-  // ── WebSocket ───────────────────────────────────────────────────────────
 
   useWebSocket(
     useCallback((event: WSEvent) => {
@@ -130,13 +122,10 @@ const { data: usdcBalance } = useReadContract({
     }, [updateTask, refreshStats])
   );
 
-  // ── Submit flow ─────────────────────────────────────────────────────────
-
   const handleSubmit = async () => {
     if (!description.trim() || !address) return;
     setError("");
 
-    // Check USDC balance
     const balance = usdcBalance ? BigInt(usdcBalance as bigint) : BigInt(0);
     if (balance < BigInt(budget)) {
       setError(
@@ -150,11 +139,9 @@ const { data: usdcBalance } = useReadContract({
     const currentAllowance = allowance ? BigInt(allowance as bigint) : BigInt(0);
 
     if (currentAllowance >= BigInt(budget)) {
-      // Already approved
       setStep("creating-task");
       await submitTask();
     } else {
-      // Request approval
       setStep("approving");
       approveUSDC({
         address: CONTRACTS.USDC,
@@ -185,8 +172,6 @@ const { data: usdcBalance } = useReadContract({
     }
   };
 
-  // ── Derived values ──────────────────────────────────────────────────────
-
   const budgetUSDC = (budget / 1_000_000).toFixed(2);
   const balanceUSDC = usdcBalance
     ? (Number(usdcBalance as bigint) / 1_000_000).toFixed(2)
@@ -212,7 +197,7 @@ const { data: usdcBalance } = useReadContract({
         </p>
       </div>
 
-      {stats && (
+      {stats && isConnected && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
           <StatCard icon={<TrendingUp size={16} />} label="Active Agents" value={stats.agents} color="arc" />
           <StatCard icon={<CheckCircle size={16} />} label="Completed Tasks" value={stats.completedTasks} color="green" />
@@ -248,7 +233,6 @@ const { data: usdcBalance } = useReadContract({
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {/* Wallet info */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                   <WalletInfo label="Address" value={`${address?.slice(0, 6)}...${address?.slice(-4)}`} />
                   <WalletInfo label="USDC Balance" value={`$${balanceUSDC}`} highlight />
@@ -282,7 +266,6 @@ const { data: usdcBalance } = useReadContract({
                   </div>
                 </div>
 
-                {/* Step indicator */}
                 {isSubmitting && (
                   <div style={{ padding: "12px 14px", background: "var(--arc-dim)", border: "1px solid rgba(0,212,255,0.2)", borderRadius: "var(--radius)", fontSize: "0.8rem", color: "var(--arc)", display: "flex", alignItems: "center", gap: 8 }}>
                     <Loader size={14} style={{ animation: "spin 1s linear infinite" }} />
@@ -294,7 +277,6 @@ const { data: usdcBalance } = useReadContract({
                   </div>
                 )}
 
-                {/* Approval tx link */}
                 {approveTxHash && (
                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
                     Approval tx:{" "}
@@ -310,7 +292,6 @@ const { data: usdcBalance } = useReadContract({
                   </div>
                 )}
 
-                {/* Info about approval */}
                 {!isAlreadyApproved && !isSubmitting && (
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", background: "var(--bg)", borderRadius: "var(--radius)", border: "1px solid var(--border)", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
                     <ShieldCheck size={14} color="var(--arc)" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -336,12 +317,17 @@ const { data: usdcBalance } = useReadContract({
             )}
           </div>
 
-          {/* Recent tasks */}
+          {/* ✅ Recent tasks: STRICTLY HIDDEN IF NOT CONNECTED */}
           <div>
             <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
-              Recent Tasks
+              Your Recent Tasks
             </div>
-            {tasks.length === 0 ? (
+            {!isConnected ? (
+              <div className="card" style={{ textAlign: "center", padding: 40, color: "var(--text-muted)", fontSize: "0.8rem", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                <Wallet size={28} style={{ opacity: 0.5 }} />
+                <div>Connect your wallet to view your tasks</div>
+              </div>
+            ) : tasks.length === 0 ? (
               <div className="card" style={{ textAlign: "center", padding: 40, color: "var(--text-muted)", fontSize: "0.8rem" }}>
                 No tasks yet. Submit your first task above.
               </div>
