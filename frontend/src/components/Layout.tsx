@@ -1,11 +1,13 @@
 import { Outlet, NavLink } from "react-router-dom";
-import { LayoutDashboard, Bot, Zap } from "lucide-react";
-import { useStats } from "../hooks/useApi";
+import { LayoutDashboard, Bot, Zap, Wallet } from "lucide-react"; // ✅ Added Wallet icon
+import { useMyStats } from "../hooks/useApi"; // ✅ Changed to useMyStats
+import { useAccount } from "wagmi"; // ✅ Added useAccount
 import WalletButton from "./wallet/WalletButton";
 import { useState, useEffect } from "react";
 
 export default function Layout() {
-  const { stats } = useStats();
+  const { isConnected } = useAccount(); // ✅ Check if wallet is connected
+  const { stats: myStats } = useMyStats(); // ✅ Get user-specific stats
   const [wsConnected, setWsConnected] = useState(false);
 
   useEffect(() => {
@@ -60,13 +62,22 @@ export default function Layout() {
 
         {/* Stats footer */}
         <div style={{ padding: "16px", borderTop: "1px solid var(--border)" }}>
-          {stats && (
+          
+          {/* ✅ Show personal stats if connected, otherwise show connect prompt */}
+          {isConnected && myStats ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-              <StatRow label="Agents" value={stats.agents} />
-              <StatRow label="Tasks" value={stats.tasks} />
-              <StatRow label="Volume" value={`$${(stats.totalVolume / 1_000_000).toFixed(2)}`} />
+              <StatRow label="My Agents" value={myStats.agents} />
+              <StatRow label="My Tasks" value={myStats.completedTasks} />
+              <StatRow label="My Volume" value={`$${(myStats.totalVolume / 1_000_000).toFixed(2)}`} />
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, color: "var(--text-muted)", fontSize: "0.7rem", fontFamily: "var(--font-mono)" }}>
+              <Wallet size={12} />
+              <span>Connect to see stats</span>
             </div>
           )}
+
+          {/* WebSocket Status */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{
               width: 6, height: 6, borderRadius: "50%",
