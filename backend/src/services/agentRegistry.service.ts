@@ -1,6 +1,14 @@
 import { prisma } from "./db.service.js";
 import type { AgentProfile, AgentCapability } from "../types/index.js";
 
+const DEFAULT_CAPABILITIES: AgentCapability[] = [
+  "research",
+  "data-analysis",
+  "content-writing",
+  "summarization",
+  "planning",
+];
+
 class AgentRegistryService {
 
   async getAll(): Promise<AgentProfile[]> {
@@ -17,10 +25,13 @@ class AgentRegistryService {
   }
 
   async getByWallet(walletAddress: string): Promise<AgentProfile | null> {
-    const agent = await prisma.agent.findUnique({ where: { walletAddress } });
+    const agent = await prisma.agent.findUnique({
+      where: { walletAddress: walletAddress.toLowerCase() },
+    });
     return agent ? dbAgentToProfile(agent) : null;
   }
 
+  // ✅ UPSERT: Creates new or updates existing agent for this wallet
   async registerAgent(params: {
     name: string;
     description: string;
@@ -28,15 +39,63 @@ class AgentRegistryService {
     walletAddress: string;
     pricePerTask: number;
   }): Promise<AgentProfile> {
+    const normalizedAddress = params.walletAddress.toLowerCase();
+
+    const existing = await prisma.agent.findUnique({
+      where: { walletAddress: normalizedAddress },
+    });
+
+    if (existing) {
+      const updated = await prisma.agent.update({
+        where: { walletAddress: normalizedAddress },
+        data: {
+          name: params.name,
+          description: params.description,
+          capabilities: params.capabilities,
+          pricePerTask: params.pricePerTask,
+        },
+      });
+      return dbAgentToProfile(updated);
+    }
+
     const agent = await prisma.agent.create({
       data: {
         name: params.name,
         description: params.description,
         capabilities: params.capabilities,
-        walletAddress: params.walletAddress,
+        walletAddress: normalizedAddress,
         pricePerTask: params.pricePerTask,
       },
     });
+
+    console.log(`🤖 New agent registered: ${agent.name} (${normalizedAddress})`);
+    return dbAgentToProfile(agent);
+  }
+
+  // ✅ AUTO-REGISTER: Called automatically when a wallet connects
+  async getOrCreateAgent(walletAddress: string): Promise<AgentProfile> {
+    const normalizedAddress = walletAddress.toLowerCase();
+
+    const existing = await prisma.agent.findUnique({
+      where: { walletAddress: normalizedAddress },
+    });
+
+    if (existing) {
+      return dbAgentToProfile(existing);
+    }
+
+    const shortAddr = normalizedAddress.slice(0, 6) + "..." + normalizedAddress.slice(-4);
+    const agent = await prisma.agent.create({
+      data: {
+        name: `Agent-${shortAddr}`,
+        description: "Autonomous AI agent in the AgentForge economy",
+        capabilities: DEFAULT_CAPABILITIES,
+        walletAddress: normalizedAddress,
+        pricePerTask: 500000, // 0.5 USDC default
+      },
+    });
+
+    console.log(`🤖 Auto-registered agent: ${agent.name} (${normalizedAddress})`);
     return dbAgentToProfile(agent);
   }
 

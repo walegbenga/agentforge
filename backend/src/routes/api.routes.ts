@@ -5,6 +5,8 @@ import { z } from "zod";
 
 const router = Router();
 
+// ─── Tasks ───────────────────────────────────────────────────────────────────
+
 const CreateTaskSchema = z.object({
   description: z.string().min(10).max(2000),
   budget: z.number().int().min(100_000).max(100_000_000),
@@ -44,6 +46,26 @@ router.get("/tasks/:id", async (req: Request, res: Response) => {
   }
 });
 
+// ✅ NEW: Agent claims a pending subtask
+const ClaimSubtaskSchema = z.object({
+  walletAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "Invalid address"),
+  subtaskIndex: z.number().int().min(0),
+});
+
+router.post("/tasks/:id/claim", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const body = ClaimSubtaskSchema.parse(req.body);
+    const task = await orchestrationEngine.claimSubtask(id, body.subtaskIndex, body.walletAddress);
+    res.json({ success: true, data: task });
+  } catch (err: any) {
+    if (err.name === "ZodError") return res.status(400).json({ success: false, error: err.errors });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── Agents ──────────────────────────────────────────────────────────────────
+
 router.get("/agents", async (_req: Request, res: Response) => {
   try {
     const agents = await agentRegistry.getAll();
@@ -63,17 +85,19 @@ router.get("/agents/:id", async (req: Request, res: Response) => {
   }
 });
 
+// ✅ UPDATED: Register or update agent (upsert by walletAddress)
 const RegisterAgentSchema = z.object({
   name: z.string().min(3).max(64),
   description: z.string().min(10).max(500),
   capabilities: z.array(z.string()).min(1).max(10),
+  walletAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "Invalid address"),
   pricePerTask: z.number().int().min(100),
 });
 
 router.post("/agents", async (req: Request, res: Response) => {
   try {
     const body = RegisterAgentSchema.parse(req.body);
-    const agent = await agentRegistry.registerAgent(body as any);
+    const agent = await agentRegistry.registerAgent(body);
     res.status(201).json({ success: true, data: agent });
   } catch (err: any) {
     if (err.name === "ZodError") return res.status(400).json({ success: false, error: err.errors });
@@ -81,14 +105,33 @@ router.post("/agents", async (req: Request, res: Response) => {
   }
 });
 
+// ✅ NEW: Auto-register on wallet connect
+router.post("/agents/connect", async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.body;
+    if (!walletAddress || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) {
+      return res.status(400).json({ success: false, error: "Valid wallet address required" });
+    }
+    const agent = await agentRegistry.getOrCreateAgent(walletAddress);
+    res.json({ success: true, data: agent });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── Stats ───────────────────────────────────────────────────────────────────
+
 router.get("/stats", async (_req: Request, res: Response) => {
   try {
     const agents = await agentRegistry.getAll();
     const tasks = await orchestrationEngine.getAllTasks();
-    
+
     const totalEarned = agents.reduce((s: number, a: any) => s + a.totalEarned, 0);
     const totalJobsCompleted = agents.reduce((s: number, a: any) => s + a.jobsCompleted, 0);
     const completedTasks = tasks.filter((t: any) => t.status === "completed").length;
+    const pendingSubtasks = tasks.reduce(
+      (s: number, t: any) => s + t.subtasks.filter((sub: any) => sub.status === "pending").length, 0
+    );
     const totalVolume = tasks.reduce((s: number, t: any) => s + t.totalBudget, 0);
 
     res.json({
@@ -97,6 +140,7 @@ router.get("/stats", async (_req: Request, res: Response) => {
         agents: agents.length,
         tasks: tasks.length,
         completedTasks,
+        pendingSubtasks,
         totalVolume,
         totalEarned,
         totalJobsCompleted,

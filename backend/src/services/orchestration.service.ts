@@ -12,6 +12,7 @@ import type {
   EvaluationResult,
   AgentCapability,
   LogEntry,
+  AgentProfile,
 } from "../types/index.js";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -37,6 +38,9 @@ export class OrchestrationEngine {
       txHashes: {},
       createdAt: new Date().toISOString(),
     };
+
+    // ✅ AUTO-REGISTER the task requester as an agent
+    await agentRegistry.getOrCreateAgent(params.requesterAddress);
 
     await taskStore.set(task);
     this.emit(task, "task:created", {
@@ -68,6 +72,35 @@ export class OrchestrationEngine {
     return await taskStore.getByAddress(address);
   }
 
+  // ✅ NEW: Agent claims a pending subtask
+  async claimSubtask(taskId: string, subtaskIndex: number, walletAddress: string): Promise<Task> {
+    const task = await taskStore.get(taskId);
+    if (!task) throw new Error("Task not found");
+
+    const subtask = task.subtasks.find(s => s.subtaskIndex === subtaskIndex);
+    if (!subtask) throw new Error("Subtask not found");
+    if (subtask.status !== "pending") throw new Error("Subtask is not available for claiming");
+
+    const agent = await agentRegistry.getOrCreateAgent(walletAddress);
+
+    subtask.assignedAgent = agent;
+    subtask.status = "assigned";
+    subtask.assignedAt = new Date().toISOString();
+
+    await taskStore.set(task);
+
+    this.log(task, "success", `${agent.name} claimed subtask ${subtaskIndex}`);
+    this.emit(task, "subtask:assigned", {
+      subtaskIndex,
+      agentName: agent.name,
+      capability: subtask.capability,
+      budget: subtask.budget,
+      status: "assigned",
+    });
+
+    return task;
+  }
+
   private async runOrchestration(task: Task): Promise<void> {
     await this.createOnChainTask(task);
 
@@ -83,6 +116,22 @@ export class OrchestrationEngine {
 
     await this.assignAgents(task, decomposition);
 
+    // ✅ Check if any subtasks got agents
+    const hasAssigned = task.subtasks.some(s => s.assignedAgent);
+    const pendingCount = task.subtasks.filter(s => s.status === "pending").length;
+
+    if (!hasAssigned) {
+      task.status = "pending";
+      this.log(task, "warning", `All ${task.subtasks.length} subtasks are pending. Waiting for agents to claim.`);
+      this.emit(task, "task:updated", { status: "pending" });
+      await taskStore.set(task);
+      return; // ✅ Stop here, don't crash
+    }
+
+    if (pendingCount > 0) {
+      this.log(task, "info", `${pendingCount} subtask(s) still pending, ${task.subtasks.length - pendingCount} assigned`);
+    }
+
     task.status = "executing";
     this.emit(task, "task:updated", { status: "executing" });
     await taskStore.set(task);
@@ -95,15 +144,26 @@ export class OrchestrationEngine {
 
     await this.evaluateAndSettle(task);
 
-    task.status = "completed";
-    task.completedAt = new Date().toISOString();
-    await taskStore.set(task);
+    // ✅ Check if ALL subtasks are settled before marking completed
+    const allSettled = task.subtasks.every(
+      s => s.status === "settled" || s.status === "disputed"
+    );
 
-    this.emit(task, "task:updated", {
-      status: "completed",
-      completedAt: task.completedAt,
-    });
-    this.log(task, "success", "✓ Task completed successfully");
+    if (allSettled) {
+      task.status = "completed";
+      task.completedAt = new Date().toISOString();
+      await taskStore.set(task);
+      this.emit(task, "task:updated", {
+        status: "completed",
+        completedAt: task.completedAt,
+      });
+      this.log(task, "success", "✓ Task completed successfully");
+    } else {
+      task.status = "pending";
+      this.log(task, "info", "Task partially completed. Waiting for remaining subtasks.");
+      this.emit(task, "task:updated", { status: "pending" });
+      await taskStore.set(task);
+    }
   }
 
   private async createOnChainTask(task: Task): Promise<void> {
@@ -152,7 +212,7 @@ TASK: ${task.description}
 BUDGET: ${totalBudgetUSDC} USDC total
 
 AVAILABLE AGENTS:
-${JSON.stringify(availableAgents, null, 2)}
+${availableAgents.length > 0 ? JSON.stringify(availableAgents, null, 2) : "No agents registered yet. Use all valid capabilities."}
 
 VALID CAPABILITIES: ${validCapabilities.join(", ")}
 
@@ -196,59 +256,79 @@ Rules:
   }
 
   private async assignAgents(task: Task, decomposition: DecompositionResult): Promise<void> {
+    // ✅ Get the requester as a potential agent
+    const requesterAgent = await agentRegistry.getOrCreateAgent(task.requesterAddress);
+
     for (let i = 0; i < decomposition.subtasks.length; i++) {
       const sub = decomposition.subtasks[i];
       const budgetMicro = Math.floor(sub.estimatedBudget * 1_000_000);
-      const agent = await agentRegistry.getBestAgent(sub.capability as AgentCapability);
 
-      if (!agent) {
-        this.log(task, "warning", `No agent for capability: ${sub.capability}`);
-        continue;
+      // Try to find the best agent for this capability
+      let agent = await agentRegistry.getBestAgent(sub.capability as AgentCapability);
+
+      // ✅ If no specialist found, check if the requester can do it
+      if (!agent && requesterAgent.capabilities.includes(sub.capability as AgentCapability)) {
+        agent = requesterAgent;
+        this.log(task, "info", `Requester ${requesterAgent.name} can handle subtask ${i + 1} (${sub.capability})`);
       }
 
+      // ✅ ALWAYS create the subtask, even without an agent
       const subtask: Subtask = {
         id: randomUUID(),
         taskId: task.id,
         subtaskIndex: i,
         description: sub.description,
         capability: sub.capability as AgentCapability,
-        assignedAgent: agent,
+        assignedAgent: agent || undefined,
         budget: budgetMicro,
-        status: "assigned",
-        assignedAt: new Date().toISOString(),
+        status: agent ? "assigned" : "pending",
+        assignedAt: agent ? new Date().toISOString() : undefined,
       };
 
       task.subtasks.push(subtask);
       task.allocatedBudget += budgetMicro;
 
-      try {
-        const txHash = await onChainService.assignSubtask({
-          taskId: task.onChainTaskId!,
-          agentWallet: agent.walletAddress as `0x${string}`,
-          capability: sub.capability as AgentCapability,
-          budget: budgetMicro,
-          description: sub.description,
+      // Only do on-chain assignment if agent exists
+      if (agent) {
+        try {
+          const txHash = await onChainService.assignSubtask({
+            taskId: task.onChainTaskId!,
+            agentWallet: agent.walletAddress as `0x${string}`,
+            capability: sub.capability as AgentCapability,
+            budget: budgetMicro,
+            description: sub.description,
+          });
+          subtask.onChainSubtaskIndex = i;
+          task.txHashes[`assign-${i}`] = txHash;
+        } catch {}
+
+        this.log(task, "info", `Subtask ${i + 1} → ${agent.name} (${sub.capability})`, {
+          budget: sub.estimatedBudget,
         });
-        subtask.onChainSubtaskIndex = i;
-        task.txHashes[`assign-${i}`] = txHash;
-      } catch {}
+      } else {
+        this.log(task, "warning", `Subtask ${i + 1} pending — no agent for: ${sub.capability}. Open for claiming.`);
+      }
 
       await taskStore.set(task);
-      this.log(task, "info", `Subtask ${i + 1} → ${agent.name} (${sub.capability})`, {
-        budget: sub.estimatedBudget,
-        agent: agent.name,
-      });
+
       this.emit(task, "subtask:assigned", {
         subtaskIndex: i,
-        agentName: agent.name,
+        agentName: agent?.name || "Unassigned",
         capability: sub.capability,
         budget: budgetMicro,
+        status: subtask.status,
       });
     }
   }
 
   private async executeSubtasks(task: Task): Promise<void> {
-    await Promise.all(task.subtasks.map((s) => this.executeSubtask(task, s)));
+    // ✅ Only execute subtasks that have agents assigned
+    const readySubtasks = task.subtasks.filter(s => s.assignedAgent);
+    if (readySubtasks.length === 0) {
+      this.log(task, "info", "No subtasks ready for execution");
+      return;
+    }
+    await Promise.all(readySubtasks.map((s) => this.executeSubtask(task, s)));
   }
 
   private async executeSubtask(task: Task, subtask: Subtask): Promise<void> {
