@@ -24,7 +24,6 @@ export function useTasks() {
 
   const load = useCallback(async () => {
     try {
-      // Filter by connected wallet address
       const url = address ? `/tasks?address=${address}` : "/tasks";
       const data = await apiFetch<Task[]>(url);
       setTasks(data);
@@ -114,6 +113,37 @@ export function useStats() {
   }, [load]);
 
   return { stats, refresh: load };
+}
+
+// ✅ NEW: Server-side user-specific stats hook
+export function useMyStats() {
+  const { address } = useAccount();
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!address) {
+      setStats(null);
+      setLoading(false);
+      return;
+    }
+
+    const fetchStats = async () => {
+      setLoading(true);
+      try {
+        const data = await apiFetch<any>(`/stats/me?address=${address}`);
+        setStats(data);
+      } catch (err) {
+        console.error("Failed to fetch user stats:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, [address]);
+
+  return { stats, loading };
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────

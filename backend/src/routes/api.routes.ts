@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { prisma } from "../services/db.service.js"; // ✅ Added Prisma import
 import { orchestrationEngine } from "../services/orchestration.service.js";
 import { agentRegistry } from "../services/agentRegistry.service.js";
 import { z } from "zod";
@@ -46,7 +47,6 @@ router.get("/tasks/:id", async (req: Request, res: Response) => {
   }
 });
 
-// ✅ NEW: Agent claims a pending subtask
 const ClaimSubtaskSchema = z.object({
   walletAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "Invalid address"),
   subtaskIndex: z.number().int().min(0),
@@ -85,7 +85,6 @@ router.get("/agents/:id", async (req: Request, res: Response) => {
   }
 });
 
-// ✅ UPDATED: Register or update agent (upsert by walletAddress)
 const RegisterAgentSchema = z.object({
   name: z.string().min(3).max(64),
   description: z.string().min(10).max(500),
@@ -105,7 +104,6 @@ router.post("/agents", async (req: Request, res: Response) => {
   }
 });
 
-// ✅ NEW: Auto-register on wallet connect
 router.post("/agents/connect", async (req: Request, res: Response) => {
   try {
     const { walletAddress } = req.body;
@@ -147,6 +145,53 @@ router.get("/stats", async (_req: Request, res: Response) => {
         averageReputationScore: agents.length > 0
           ? agents.reduce((s: number, a: any) => s + a.reputationScore, 0) / agents.length
           : 0,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ NEW: Server-side user-specific stats endpoint (Database level aggregation)
+router.get("/stats/me", async (req: Request, res: Response) => {
+  try {
+    const { address } = req.query;
+    if (!address || typeof address !== "string") {
+      return res.status(400).json({ success: false, error: "Wallet address is required" });
+    }
+
+    const normalizedAddress = address.toLowerCase();
+
+    // 1. Count agents and sum jobs completed for this wallet
+    const myAgents = await prisma.agent.findMany({
+      where: { walletAddress: normalizedAddress },
+      select: { jobsCompleted: true },
+    });
+    const myAgentsCount = myAgents.length;
+    const myJobsCompleted = myAgents.reduce((sum, a) => sum + a.jobsCompleted, 0);
+
+    // 2. Count completed tasks for this wallet
+    const myCompletedTasks = await prisma.task.count({
+      where: { 
+        requesterAddress: normalizedAddress, 
+        status: "completed" 
+      },
+    });
+
+    // 3. Calculate total volume for this wallet's tasks
+    const myTasksVolume = await prisma.task.findMany({
+      where: { requesterAddress: normalizedAddress },
+      select: { totalBudget: true },
+    });
+    const myTotalVolume = myTasksVolume.reduce((sum, t) => sum + t.totalBudget, 0);
+
+    res.json({
+      success: true,
+      data: {
+        agents: myAgentsCount,
+        completedTasks: myCompletedTasks,
+        totalVolume: myTotalVolume,
+        jobsCompleted: myJobsCompleted,
       },
     });
   } catch (err: any) {
