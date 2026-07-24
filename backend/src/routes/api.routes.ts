@@ -8,6 +8,7 @@ import { SiweMessage } from "siwe"; // ✅ Added SIWE
 const router = Router();
 
 // ✅ NEW: SIWE Verification Middleware
+// ✅ UPDATED: Logs the exact SIWE error for easy debugging
 const verifySiwe = async (req: Request, res: Response, next: Function) => {
   try {
     const { signature, message } = req.body;
@@ -19,15 +20,15 @@ const verifySiwe = async (req: Request, res: Response, next: Function) => {
     const { success, error } = await siweMessage.verify({ signature });
 
     if (!success) {
-      return res.status(401).json({ success: false, error: "Invalid signature: " + error });
+      console.error("❌ SIWE Verification Failed:", error); // ✅ This will print the exact reason in Railway logs
+      return res.status(401).json({ success: false, error: `Invalid signature: ${error}` });
     }
 
-    // Attach the cryptographically verified address to the request
     (req as any).verifiedAddress = siweMessage.address.toLowerCase();
     next();
-  } catch (err) {
-    console.error("SIWE Verification Error:", err);
-    res.status(401).json({ success: false, error: "Authentication failed" });
+  } catch (err: any) {
+    console.error("❌ SIWE Crash:", err.message);
+    res.status(401).json({ success: false, error: "Authentication failed: " + err.message });
   }
 };
 
