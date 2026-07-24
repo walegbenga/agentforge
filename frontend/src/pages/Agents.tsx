@@ -17,7 +17,8 @@ const CAPABILITY_COLORS: Record<string, string> = {
 };
 
 export default function Agents() {
-  const { isConnected } = useAccount(); // ✅ Added
+  // ✅ Get both isConnected AND address
+  const { isConnected, address } = useAccount();
   const { agents, loading } = useAgents();
 
   // ✅ STRICT GUARD: Hide everything if not connected
@@ -36,7 +37,24 @@ export default function Agents() {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
         <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.8rem" }}>
-          Loading agents...
+          Loading agent profile...
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ FILTER: Only show the agent profile belonging to the connected wallet
+  const myAgent = agents.find(
+    (a) => a.walletAddress.toLowerCase() === address?.toLowerCase()
+  );
+
+  // ✅ Show message if the connected wallet hasn't registered an agent yet
+  if (!myAgent) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 400, gap: 16 }}>
+        <Bot size={48} color="var(--text-muted)" style={{ opacity: 0.5 }} />
+        <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.9rem", textAlign: "center" }}>
+          You have not registered an agent profile yet.
         </div>
       </div>
     );
@@ -46,49 +64,22 @@ export default function Agents() {
     <div style={{ maxWidth: 1000, margin: "0 auto" }}>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "1.75rem", letterSpacing: "-0.03em", marginBottom: 4 }}>
-          Agent Directory
+          My Agent Profile
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-          {agents.length} specialist agents registered on Arc. Reputation built on-chain through settled jobs.
+          Your specialist agent registered on Arc. Reputation is built on-chain through settled jobs.
         </p>
       </div>
 
-      {/* Leaderboard header */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "32px 1fr 100px 90px 120px 100px",
-        gap: 12,
-        padding: "8px 16px",
-        fontSize: "0.65rem",
-        color: "var(--text-muted)",
-        textTransform: "uppercase",
-        letterSpacing: "0.08em",
-        fontWeight: 600,
-        borderBottom: "1px solid var(--border)",
-        marginBottom: 8,
-      }}>
-        <span>#</span>
-        <span>Agent</span>
-        <span>Reputation</span>
-        <span>Jobs</span>
-        <span>Earned</span>
-        <span>Price/Task</span>
-      </div>
-
+      {/* Single Agent Card (No leaderboard needed since it's just your profile) */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {agents
-          .sort((a, b) => b.reputationScore - a.reputationScore)
-          .map((agent, i) => (
-            <AgentRow key={agent.id} agent={agent} rank={i + 1} />
-          ))}
+        <AgentRow agent={myAgent} rank={1} />
       </div>
     </div>
   );
 }
 
 function AgentRow({ agent, rank }: { agent: AgentProfile; rank: number }) {
-  const isTop = rank <= 3;
-
   return (
     <div
       className="card animate-fade-in"
@@ -98,7 +89,7 @@ function AgentRow({ agent, rank }: { agent: AgentProfile; rank: number }) {
         gridTemplateColumns: "32px 1fr 100px 90px 120px 100px",
         gap: 12,
         alignItems: "center",
-        borderColor: rank === 1 ? "rgba(0,212,255,0.25)" : "var(--border)",
+        borderColor: "rgba(0,212,255,0.25)",
       }}
     >
       {/* Rank */}
@@ -106,9 +97,9 @@ function AgentRow({ agent, rank }: { agent: AgentProfile; rank: number }) {
         fontFamily: "var(--font-mono)",
         fontWeight: 700,
         fontSize: "0.8rem",
-        color: rank === 1 ? "var(--arc)" : rank === 2 ? "var(--text-secondary)" : "var(--text-muted)",
+        color: "var(--arc)",
       }}>
-        {rank === 1 ? "★" : rank}
+        ★
       </span>
 
       {/* Identity */}
