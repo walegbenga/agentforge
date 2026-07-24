@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Send, Wallet, TrendingUp, Clock, CheckCircle, DollarSign, ShieldCheck, Loader } from "lucide-react";
+import { Send, Wallet, TrendingUp, Clock, CheckCircle, DollarSign, ShieldCheck, Loader, Bot, Briefcase } from "lucide-react";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useTasks, useStats, useWebSocket } from "../hooks/useApi";
+import { useTasks, useStats, useAgents, useWebSocket } from "../hooks/useApi";
 import TaskCard from "../components/dashboard/TaskCard";
 import LiveFeed from "../components/dashboard/LiveFeed";
 import { arcTestnet, CONTRACTS, USDC_ABI } from "../config/wagmi";
@@ -45,7 +45,8 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { address, isConnected, chainId } = useAccount();
   const { tasks, createTask, updateTask } = useTasks();
-  const { stats, refresh: refreshStats } = useStats();
+  const { agents } = useAgents(); // ✅ Added to calculate local user stats
+  const { refresh: refreshStats } = useStats(); // ✅ Kept for WebSocket refresh
 
   const [description, setDescription] = useState("");
   const [budget, setBudget] = useState(5_000_000);
@@ -186,6 +187,12 @@ export default function Dashboard() {
   ].includes(step);
   const isWrongNetwork = isConnected && chainId !== arcTestnet.id;
 
+  // ✅ CALCULATE USER-SPECIFIC STATS LOCALLY
+  const myAgentsCount = agents ? agents.length : 0;
+  const myCompletedTasks = tasks.filter((t: any) => t.status === "completed").length;
+  const myTotalVolume = tasks.reduce((sum: number, t: any) => sum + (t.totalBudget || 0), 0);
+  const myJobsCompleted = agents ? agents.reduce((sum: number, a: any) => sum + (a.jobsCompleted || 0), 0) : 0;
+
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto" }}>
       <div style={{ marginBottom: 32 }}>
@@ -197,12 +204,13 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {stats && isConnected && (
+      {/* ✅ USER-SPECIFIC STATS CARDS */}
+      {isConnected && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
-          <StatCard icon={<TrendingUp size={16} />} label="Active Agents" value={stats.agents} color="arc" />
-          <StatCard icon={<CheckCircle size={16} />} label="Completed Tasks" value={stats.completedTasks} color="green" />
-          <StatCard icon={<DollarSign size={16} />} label="Total Volume" value={`$${(stats.totalVolume / 1_000_000).toFixed(2)}`} color="usdc" />
-          <StatCard icon={<Clock size={16} />} label="Jobs Completed" value={stats.totalJobsCompleted} color="yellow" />
+          <StatCard icon={<Bot size={16} />} label="My Agents" value={myAgentsCount} color="arc" />
+          <StatCard icon={<CheckCircle size={16} />} label="My Completed Tasks" value={myCompletedTasks} color="green" />
+          <StatCard icon={<DollarSign size={16} />} label="My Total Volume" value={`$${(myTotalVolume / 1_000_000).toFixed(2)}`} color="usdc" />
+          <StatCard icon={<Briefcase size={16} />} label="My Jobs Done" value={myJobsCompleted} color="yellow" />
         </div>
       )}
 
