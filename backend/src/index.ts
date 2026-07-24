@@ -1,6 +1,7 @@
 import { config } from "dotenv";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import rateLimit from "express-rate-limit"; // ✅ Added Rate Limiting
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: join(__dirname, "../../.env") });
@@ -23,6 +24,7 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 const HOST = "0.0.0.0";
 
 const allowedOrigins = [
+  "https://agentforge-gules.vercel.app", // ✅ Updated to your actual Vercel URL
   "https://agentforged.vercel.app",
   "http://localhost:5173",
   "http://localhost:5174",
@@ -45,6 +47,18 @@ app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 app.use(express.json());
 
+// ✅ NEW: Global Rate Limiter (100 requests per 15 minutes per IP)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 100, 
+  message: { success: false, error: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiting to all /api routes
+app.use("/api", apiLimiter);
+
 // Health check — responds immediately
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -54,7 +68,6 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
 async function start() {
-  // Connect to database first
   await connectDB();
 
   const { wsService } = await import("./services/websocket.service.js");
@@ -73,9 +86,6 @@ async function start() {
     console.log(`✓ Ready\n`);
   });
 
-  // ✅ REMOVED: agentRegistry.initialize() call since it no longer exists
-
-  // Graceful shutdown
   process.on("SIGTERM", async () => {
     console.log("SIGTERM received — shutting down gracefully");
     server.close();
