@@ -1,5 +1,5 @@
 import { Queue, Worker } from "bullmq";
-import Redis from "ioredis";
+import { Redis } from "ioredis"; // ✅ FIX 1: Named import for ESM compatibility
 import { orchestrationEngine } from "./orchestration.service.js";
 import { taskStore } from "./taskStore.service.js";
 import { randomUUID } from "crypto";
@@ -35,16 +35,22 @@ export async function queueTaskCreation(params: {
 }) {
   const taskId = randomUUID();
   
-  // Create an initial "queued" task so the frontend can display it immediately
+  // ✅ FIX 2: Use "pending" to match the existing TaskStatus type
   const initialTask = {
     id: taskId,
     requesterAddress: params.requesterAddress.toLowerCase(),
     description: params.description,
     totalBudget: params.budget,
     allocatedBudget: 0,
-    status: "queued" as const,
+    status: "pending" as const, 
     subtasks: [],
-    orchestrationLog: [],
+    orchestrationLog: [
+      {
+        timestamp: new Date().toISOString(),
+        level: "info" as const,
+        message: "Task received and queued for background processing",
+      }
+    ],
     txHashes: {},
     createdAt: new Date().toISOString(),
   };
