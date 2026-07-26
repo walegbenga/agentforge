@@ -4,6 +4,7 @@ import { orchestrationEngine } from "../services/orchestration.service.js";
 import { agentRegistry } from "../services/agentRegistry.service.js";
 import { z } from "zod";
 import { SiweMessage } from "siwe"; // ✅ Added SIWE
+import { queueTaskCreation } from "../services/taskQueue.service.js";
 
 const router = Router();
 
@@ -43,14 +44,17 @@ const CreateTaskSchema = z.object({
 // ✅ PROTECTED: Requires valid SIWE signature
 router.post("/tasks", verifySiwe, async (req: Request, res: Response) => {
   try {
-    const verifiedAddress = (req as any).verifiedAddress; // ✅ Trust the signature, not the body
+    const verifiedAddress = (req as any).verifiedAddress;
     const body = CreateTaskSchema.parse(req.body);
     
-    const task = await orchestrationEngine.createAndRunTask({
+    // ✅ INSTANT: Queue the task, don't wait for blockchain/AI
+    const task = await queueTaskCreation({
       ...body,
-      requesterAddress: verifiedAddress, 
+      requesterAddress: verifiedAddress,
     });
-    res.status(201).json({ success: true, data: task });
+
+    // Return 202 Accepted immediately with the initial task state
+    res.status(202).json({ success: true, data: task });
   } catch (err: any) {
     if (err.name === "ZodError") return res.status(400).json({ success: false, error: err.errors });
     res.status(500).json({ success: false, error: err.message });

@@ -67,6 +67,10 @@ app.get("/api/health", (_req, res) => {
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
+  // Start the background worker
+  const { taskWorker } = await import("./services/taskQueue.service.js");
+  console.log("✓ Background Task Worker Started (BullMQ)");
+
 async function start() {
   await connectDB();
 
