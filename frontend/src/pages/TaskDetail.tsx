@@ -54,7 +54,7 @@ export default function TaskDetail() {
   const hasTxHashes = Object.keys(task.txHashes || {}).length > 0;
   const showCodeButton = hasCodeBlocks(task);
 
-  // ✅ BULLETPROOF EXPORT WITH CHATGPT'S FIXES
+  // ✅ BULLETPROOF EXPORT WITH ALL CRITICAL FIXES
   const handleExportPDF = async () => {
     const originalElement = document.getElementById("task-full-report");
     if (!originalElement) {
@@ -62,13 +62,12 @@ export default function TaskDetail() {
       return;
     }
 
-    // 🔍 DEBUG: Check if original has content
     console.log("📏 ORIGINAL HTML LENGTH:", originalElement.innerHTML.length);
 
     // 1. Clone the element
     const clone = originalElement.cloneNode(true) as HTMLElement;
     
-    // 2. Inject forced light theme styles (fixes dark mode invisibility)
+    // 2. Inject forced light theme styles
     const style = document.createElement("style");
     style.innerHTML = `
       * { color: #000000 !important; background-color: transparent !important; border-color: #e5e7eb !important; }
@@ -79,15 +78,15 @@ export default function TaskDetail() {
     `;
     clone.prepend(style);
 
-    // 3. Force visible layout (NO display: none)
+    // 3. Force visible layout (🔥 position: "absolute" is crucial for html2canvas)
     clone.style.display = "block";
-    clone.style.position = "absolute";
+    clone.style.position = "absolute"; 
     clone.style.top = "0";
     clone.style.left = "0";
     clone.style.width = "800px";
     clone.style.zIndex = "99999";
     clone.style.backgroundColor = "#ffffff";
-    clone.style.color = "#000000";
+    clone.style.color = "#000000"; // 🔥 Explicitly force black text on the root
     clone.style.padding = "40px";
     clone.style.visibility = "visible";
     clone.style.opacity = "1";
@@ -105,7 +104,6 @@ export default function TaskDetail() {
     await new Promise(resolve => setTimeout(resolve, 1000));
     await document.fonts.ready;
 
-    // 🔍 DEBUG: Check if clone has content
     console.log("📏 CLONE HTML LENGTH:", clone.innerHTML.length);
 
     try {

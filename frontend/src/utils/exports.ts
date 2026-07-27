@@ -25,13 +25,14 @@ export const generatePDF = async (element: HTMLElement, filename: string): Promi
   const opt = {
     margin: 0.5,
     filename,
-    image: { type: "jpeg", quality: 1 }, // 🔥 Updated to 1 for maximum clarity
+    image: { type: "jpeg", quality: 1 },
     html2canvas: {
       scale: 2,
       useCORS: true,
       backgroundColor: "#ffffff",
-      scrollY: 0, // 🔥 CRITICAL FIX: Prevents cutoff/blank captures by forcing top alignment
-      windowWidth: 800, // Forces correct width for capture
+      scrollY: 0, // 🔥 CRITICAL: Prevents cutoff/blank captures
+      windowWidth: 800,
+      logging: false,
     },
     jsPDF: {
       unit: "in",
@@ -40,7 +41,11 @@ export const generatePDF = async (element: HTMLElement, filename: string): Promi
     },
   };
 
-  await html2pdf().set(opt).from(element).save();
+  // 🔥 THE ROBUST APPROACH: outputPdf() returns the jsPDF instance directly
+  const pdfInstance = await html2pdf().set(opt).from(element).outputPdf();
+  
+  // Save the generated PDF
+  pdfInstance.save(filename);
 };
 
 // 4. Download Consolidated DOCX (Word)
