@@ -32,6 +32,7 @@ export const taskWorker = new Worker(
 );
 
 // 3. Helper to queue a task
+
 export async function queueTaskCreation(params: {
   description: string;
   budget: number;
@@ -39,14 +40,13 @@ export async function queueTaskCreation(params: {
 }) {
   const taskId = randomUUID();
   
-  // Create an initial "pending" task so the frontend can display it immediately
   const initialTask = {
     id: taskId,
     requesterAddress: params.requesterAddress.toLowerCase(),
     description: params.description,
     totalBudget: params.budget,
     allocatedBudget: 0,
-    status: "pending" as const, // ✅ Uses valid TaskStatus
+    status: "pending" as const,
     subtasks: [],
     orchestrationLog: [
       {
@@ -61,7 +61,7 @@ export async function queueTaskCreation(params: {
 
   await taskStore.set(initialTask);
   
-  // Add to queue
+  // ✅ CRITICAL: Pass the taskId to the worker so it reuses it
   const job = await taskQueue.add("create-task", { ...params, taskId });
   
   return { ...initialTask, jobId: job.id };

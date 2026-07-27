@@ -19,33 +19,36 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 export class OrchestrationEngine {
 
-  async createAndRunTask(params: {
+      async createAndRunTask(params: {
     description: string;
     budget: number;
     requesterAddress: string;
+    taskId?: string; // ✅ Added: Allow passing existing taskId from queue
   }): Promise<Task> {
-    const taskId = randomUUID();
-    
-    // ✅ ALWAYS NORMALIZE ADDRESSES TO LOWERCASE FOR CONSISTENT DATABASE MATCHING
-    const normalizedAddress = params.requesterAddress.toLowerCase();
+    // ✅ Reuse the provided taskId, or generate a new one if called directly
+    const taskId = params.taskId || randomUUID();
 
     const task: Task = {
       id: taskId,
-      requesterAddress: normalizedAddress, // ✅ Use normalizedAddress
+      requesterAddress: params.requesterAddress.toLowerCase(),
       description: params.description,
       totalBudget: params.budget,
       allocatedBudget: 0,
-      status: "pending",
+      status: "decomposing", // ✅ Worker takes over, so start at decomposing
       subtasks: [],
-      orchestrationLog: [],
+      orchestrationLog: [
+        {
+          timestamp: new Date().toISOString(),
+          level: "info" as const,
+          message: "Background worker started processing task",
+        }
+      ],
       txHashes: {},
       createdAt: new Date().toISOString(),
     };
 
-    // ✅ AUTO-REGISTER the task requester as an agent (using normalized address)
-    await agentRegistry.getOrCreateAgent(normalizedAddress);
-
     await taskStore.set(task);
+    
     this.emit(task, "task:created", {
       taskId,
       description: params.description,
@@ -335,66 +338,28 @@ Rules:
     await Promise.all(readySubtasks.map((s) => this.executeSubtask(task, s)));
   }
 
-  private async executeSubtask(task: Task, subtask: Subtask): Promise<void> {
-    const agent = subtask.assignedAgent!;
-    subtask.status = "executing";
-    await taskStore.set(task);
+  // Inside executeSubtask method:
+const response = await groq.chat.completions.create({
+  model: "llama-3.3-70b-versatile",
+  max_tokens: 4000, // Increased to allow for longer, formatted reports
+  temperature: 0.5,
+  messages: [
+    { 
+      role: "system", 
+      content: `${this.buildAgentSystemPrompt(agent.name, subtask.capability)}
 
-    this.emit(task, "subtask:executing", {
-      subtaskIndex: subtask.subtaskIndex,
-      agentName: agent.name,
-    });
-    this.emit(task, "agent:thinking", {
-      agent: agent.name,
-      message: `Processing: ${subtask.description}`,
-    });
-
-    try {
-      const response = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        max_tokens: 2000,
-        temperature: 0.5,
-        messages: [
-          { role: "system", content: this.buildAgentSystemPrompt(agent.name, subtask.capability) },
-          {
-            role: "user",
-            content: `TASK CONTEXT: ${task.description}\n\nYOUR SUBTASK: ${subtask.description}\n\nDeliver your work now. Be thorough and specific.`,
-          },
-        ],
-      });
-
-      const deliverable = response.choices[0]?.message?.content ?? "";
-      const deliverableHash = keccak256(toBytes(deliverable));
-
-      subtask.deliverable = deliverable;
-      subtask.deliverableHash = deliverableHash;
-      subtask.status = "submitted";
-      subtask.submittedAt = new Date().toISOString();
-      await taskStore.set(task);
-
-      try {
-        await onChainService.settleSubtask(task.onChainTaskId!, subtask.subtaskIndex);
-        task.txHashes[`settle-${subtask.subtaskIndex}`] = deliverableHash;
-        await taskStore.set(task);
-      } catch {}
-
-      this.log(task, "info", `${agent.name} submitted deliverable`, {
-        hash: deliverableHash,
-        preview: deliverable.slice(0, 100) + "...",
-      });
-      this.emit(task, "subtask:submitted", {
-        subtaskIndex: subtask.subtaskIndex,
-        agentName: agent.name,
-        deliverableHash,
-        preview: deliverable.slice(0, 150),
-      });
-    } catch (err) {
-      subtask.status = "disputed";
-      subtask.error = (err as Error).message;
-      await taskStore.set(task);
-      this.log(task, "error", `${agent.name} failed: ${(err as Error).message}`);
-    }
-  }
+IMPORTANT FORMATTING RULES:
+- You MUST output your deliverable using Markdown formatting.
+- Use # for main titles, ## for subtitles, and bullet points for lists.
+- If you are writing code, you MUST wrap it in code blocks with the language specified (e.g., \`\`\`javascript ... \`\`\` or \`\`\`solidity ... \`\`\`).
+- Do not just output a wall of text. Structure it professionally.` 
+    },
+    {
+      role: "user",
+      content: `TASK CONTEXT: ${task.description}\n\nYOUR SUBTASK: ${subtask.description}\n\nDeliver your work now. Be thorough, specific, and professionally formatted.`,
+    },
+  ],
+});
 
   private async evaluateAndSettle(task: Task): Promise<void> {
     for (const subtask of task.subtasks) {
