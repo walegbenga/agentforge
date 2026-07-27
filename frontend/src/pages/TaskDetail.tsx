@@ -1,11 +1,61 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useCallback } from "react";
 import { useAccount } from "wagmi";
-import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap, Wallet } from "lucide-react";
+import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap, Wallet, FileText, FileCode } from "lucide-react";
 import { useTask, useWebSocket } from "../hooks/useApi";
 import type { Subtask, WSEvent, SubtaskStatus, LogEntry } from "../types";
 
+// ✅ NEW IMPORTS FOR RICH TEXT & EXPORTS
+import ReactMarkdown from "react-markdown";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { jsPDF } from "jspdf";
+
 const ARC_EXPLORER = "https://testnet.arcscan.app/";
+
+// ─── Helper Functions for Exports ──────────────────────────────────────────────
+
+const downloadCodeFile = (deliverable: string) => {
+  // Extract the first code block from the markdown
+  const codeMatch = deliverable.match(/```(\w+)?\n([\s\S]*?)```/);
+  if (!codeMatch) {
+    alert("No code block found in this deliverable to download!");
+    return;
+  }
+
+  const language = codeMatch[1] || "txt";
+  const codeContent = codeMatch[2];
+
+  // Map language to file extension
+  const extensionMap: Record<string, string> = {
+    javascript: "js", typescript: "ts", python: "py", php: "php", 
+    ruby: "rb", solidity: "sol", rust: "rs", go: "go", html: "html", 
+    css: "css", json: "json", bash: "sh", shell: "sh"
+  };
+  const ext = extensionMap[language.toLowerCase()] || "txt";
+
+  // Create a Blob and trigger download
+  const blob = new Blob([codeContent], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `agentforge-deliverable.${ext}`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+const downloadPDF = (deliverable: string, subtaskIndex: number) => {
+  const doc = new jsPDF();
+  // Strip code blocks for simple PDF to avoid formatting issues in basic jsPDF
+  const text = deliverable.replace(/```[\s\S]*?```/g, "[Code Block Omitted - Use 'Download Code' for full source]");
+  const splitText = doc.splitTextToSize(text, 180);
+  doc.text(splitText, 10, 10);
+  doc.save(`subtask-${subtaskIndex + 1}.pdf`);
+};
+
+// ─── Status Config ─────────────────────────────────────────────────────────────
 
 const SUBTASK_STATUS: Record<SubtaskStatus, { label: string; badge: string; icon: React.ReactNode }> = {
   pending:    { label: "Pending",    badge: "badge-muted",   icon: <Clock size={10} /> },
@@ -20,7 +70,7 @@ const SUBTASK_STATUS: Record<SubtaskStatus, { label: string; badge: string; icon
 export default function TaskDetail() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
-  const { isConnected } = useAccount(); // ✅ Added
+  const { isConnected } = useAccount();
   const { task, refresh } = useTask(taskId ?? null);
 
   useWebSocket(
@@ -32,7 +82,6 @@ export default function TaskDetail() {
     }, [taskId, refresh])
   );
 
-  // ✅ STRICT GUARD: Hide everything if not connected
   if (!isConnected) {
     return (
       <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: 400, gap: 16 }}>
@@ -112,12 +161,11 @@ export default function TaskDetail() {
                 >
                   {label} <ExternalLink size={9} />
                 </a>
-                ))}
+              ))}
             </div>
           </div>
         )}
 
-        {/* Requester */}
         <div style={{ marginTop: 10, fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
           Submitted by: {task.requesterAddress}
         </div>
@@ -167,6 +215,8 @@ export default function TaskDetail() {
     </div>
   );
 }
+
+// ─── Subtask Card Component ────────────────────────────────────────────────────
 
 function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
   const cfg = SUBTASK_STATUS[subtask.status];
@@ -231,22 +281,73 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
         </div>
       )}
 
+      {/* ✅ UPDATED: Rich Markdown Rendering & Export Buttons */}
       {subtask.deliverable && subtask.status === "settled" && (
-        <details style={{ marginTop: 10 }}>
-          <summary style={{ fontSize: "0.75rem", color: "var(--text-secondary)", cursor: "pointer", userSelect: "none" }}>
-            View Deliverable
-          </summary>
+        <div style={{ marginTop: 12 }}>
+          {/* Action Buttons */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <button
+              className="btn btn-ghost"
+              style={{ fontSize: "0.7rem", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4 }}
+              onClick={() => downloadPDF(subtask.deliverable, subtask.subtaskIndex)}
+            >
+              <FileText size={12} /> Export PDF
+            </button>
+            <button
+              className="btn btn-ghost"
+              style={{ fontSize: "0.7rem", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4 }}
+              onClick={() => downloadCodeFile(subtask.deliverable)}
+            >
+              <FileCode size={12} /> Download Code
+            </button>
+          </div>
+
+          {/* Rendered Deliverable */}
           <div style={{
-            marginTop: 8, padding: 12,
+            padding: 16,
             background: "var(--bg)",
             borderRadius: "var(--radius)",
-            fontSize: "0.75rem", color: "var(--text-secondary)",
-            lineHeight: 1.6, maxHeight: 200, overflow: "auto",
-            fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word",
+            border: "1px solid var(--border)",
+            fontSize: "0.85rem",
+            color: "var(--text-secondary)",
+            lineHeight: 1.6,
+            maxHeight: 500,
+            overflow: "auto",
           }}>
-            {subtask.deliverable}
+            <ReactMarkdown
+              components={{
+                // Syntax highlighting for code blocks
+                code({ node, inline, className, children, ...props }) {
+                  const match = /language-(\w+)/.exec(className || "");
+                  return !inline && match ? (
+                    <SyntaxHighlighter
+                      style={vscDarkPlus}
+                      language={match[1]}
+                      PreTag="div"
+                      {...props}
+                    >
+                      {String(children).replace(/\n$/, "")}
+                    </SyntaxHighlighter>
+                  ) : (
+                    <code className={className} style={{ background: "var(--bg-hover)", padding: "2px 4px", borderRadius: 4, fontSize: "0.8em" }} {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+                // Clean typography for Markdown elements
+                h1: ({children}) => <h1 style={{color: "var(--text-primary)", fontSize: "1.2rem", marginBottom: "8px", marginTop: "16px"}}>{children}</h1>,
+                h2: ({children}) => <h2 style={{color: "var(--text-primary)", fontSize: "1.1rem", marginBottom: "6px", marginTop: "12px"}}>{children}</h2>,
+                h3: ({children}) => <h3 style={{color: "var(--text-primary)", fontSize: "1rem", marginBottom: "6px", marginTop: "10px"}}>{children}</h3>,
+                ul: ({children}) => <ul style={{marginBottom: "8px", paddingLeft: "20px"}}>{children}</ul>,
+                ol: ({children}) => <ol style={{marginBottom: "8px", paddingLeft: "20px"}}>{children}</ol>,
+                p: ({children}) => <p style={{marginBottom: "8px"}}>{children}</p>,
+                blockquote: ({children}) => <blockquote style={{borderLeft: "3px solid var(--arc)", paddingLeft: "12px", margin: "8px 0", color: "var(--text-muted)"}}>{children}</blockquote>,
+              }}
+            >
+              {subtask.deliverable}
+            </ReactMarkdown>
           </div>
-        </details>
+        </div>
       )}
 
       {subtask.deliverableHash && (
@@ -265,6 +366,8 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
     </div>
   );
 }
+
+// ─── Helper Components ─────────────────────────────────────────────────────────
 
 function LogLine({ entry }: { entry: LogEntry }) {
   const colors: Record<string, string> = {
