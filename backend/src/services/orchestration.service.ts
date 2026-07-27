@@ -18,14 +18,12 @@ import type {
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 export class OrchestrationEngine {
-
-      async createAndRunTask(params: {
+  async createAndRunTask(params: {
     description: string;
     budget: number;
     requesterAddress: string;
-    taskId?: string; // ✅ Added: Allow passing existing taskId from queue
+    taskId?: string;
   }): Promise<Task> {
-    // ✅ Reuse the provided taskId, or generate a new one if called directly
     const taskId = params.taskId || randomUUID();
 
     const task: Task = {
@@ -34,21 +32,21 @@ export class OrchestrationEngine {
       description: params.description,
       totalBudget: params.budget,
       allocatedBudget: 0,
-      status: "decomposing", // ✅ Worker takes over, so start at decomposing
+      status: "decomposing",
       subtasks: [],
       orchestrationLog: [
         {
           timestamp: new Date().toISOString(),
           level: "info" as const,
           message: "Background worker started processing task",
-        }
+        },
       ],
       txHashes: {},
       createdAt: new Date().toISOString(),
     };
 
     await taskStore.set(task);
-    
+
     this.emit(task, "task:created", {
       taskId,
       description: params.description,
@@ -75,16 +73,14 @@ export class OrchestrationEngine {
   }
 
   async getTasksByAddress(address: string): Promise<Task[]> {
-    // ✅ Normalize address when searching to ensure exact matches
     return await taskStore.getByAddress(address.toLowerCase());
   }
 
-  // ✅ NEW: Agent claims a pending subtask
   async claimSubtask(taskId: string, subtaskIndex: number, walletAddress: string): Promise<Task> {
     const task = await taskStore.get(taskId);
     if (!task) throw new Error("Task not found");
 
-    const subtask = task.subtasks.find(s => s.subtaskIndex === subtaskIndex);
+    const subtask = task.subtasks.find((s) => s.subtaskIndex === subtaskIndex);
     if (!subtask) throw new Error("Subtask not found");
     if (subtask.status !== "pending") throw new Error("Subtask is not available for claiming");
 
@@ -123,16 +119,15 @@ export class OrchestrationEngine {
 
     await this.assignAgents(task, decomposition);
 
-    // ✅ Check if any subtasks got agents
-    const hasAssigned = task.subtasks.some(s => s.assignedAgent);
-    const pendingCount = task.subtasks.filter(s => s.status === "pending").length;
+    const hasAssigned = task.subtasks.some((s) => s.assignedAgent);
+    const pendingCount = task.subtasks.filter((s) => s.status === "pending").length;
 
     if (!hasAssigned) {
       task.status = "pending";
       this.log(task, "warning", `All ${task.subtasks.length} subtasks are pending. Waiting for agents to claim.`);
       this.emit(task, "task:updated", { status: "pending" });
       await taskStore.set(task);
-      return; // ✅ Stop here, don't crash
+      return;
     }
 
     if (pendingCount > 0) {
@@ -151,10 +146,7 @@ export class OrchestrationEngine {
 
     await this.evaluateAndSettle(task);
 
-    // ✅ Check if ALL subtasks are settled before marking completed
-    const allSettled = task.subtasks.every(
-      s => s.status === "settled" || s.status === "disputed"
-    );
+    const allSettled = task.subtasks.every((s) => s.status === "settled" || s.status === "disputed");
 
     if (allSettled) {
       task.status = "completed";
@@ -263,23 +255,19 @@ Rules:
   }
 
   private async assignAgents(task: Task, decomposition: DecompositionResult): Promise<void> {
-    // ✅ Get the requester as a potential agent
     const requesterAgent = await agentRegistry.getOrCreateAgent(task.requesterAddress);
 
     for (let i = 0; i < decomposition.subtasks.length; i++) {
       const sub = decomposition.subtasks[i];
       const budgetMicro = Math.floor(sub.estimatedBudget * 1_000_000);
 
-      // Try to find the best agent for this capability
       let agent = await agentRegistry.getBestAgent(sub.capability as AgentCapability);
 
-      // ✅ If no specialist found, check if the requester can do it
       if (!agent && requesterAgent.capabilities.includes(sub.capability as AgentCapability)) {
         agent = requesterAgent;
         this.log(task, "info", `Requester ${requesterAgent.name} can handle subtask ${i + 1} (${sub.capability})`);
       }
 
-      // ✅ ALWAYS create the subtask, even without an agent
       const subtask: Subtask = {
         id: randomUUID(),
         taskId: task.id,
@@ -295,7 +283,6 @@ Rules:
       task.subtasks.push(subtask);
       task.allocatedBudget += budgetMicro;
 
-      // Only do on-chain assignment if agent exists
       if (agent) {
         try {
           const txHash = await onChainService.assignSubtask({
@@ -329,8 +316,7 @@ Rules:
   }
 
   private async executeSubtasks(task: Task): Promise<void> {
-    // ✅ Only execute subtasks that have agents assigned
-    const readySubtasks = task.subtasks.filter(s => s.assignedAgent);
+    const readySubtasks = task.subtasks.filter((s) => s.assignedAgent);
     if (readySubtasks.length === 0) {
       this.log(task, "info", "No subtasks ready for execution");
       return;
@@ -338,28 +324,75 @@ Rules:
     await Promise.all(readySubtasks.map((s) => this.executeSubtask(task, s)));
   }
 
-  // Inside executeSubtask method:
-const response = await groq.chat.completions.create({
-  model: "llama-3.3-70b-versatile",
-  max_tokens: 4000, // Increased to allow for longer, formatted reports
-  temperature: 0.5,
-  messages: [
-    { 
-      role: "system", 
-      content: `${this.buildAgentSystemPrompt(agent.name, subtask.capability)}
+  private async executeSubtask(task: Task, subtask: Subtask): Promise<void> {
+    const agent = subtask.assignedAgent!;
+    subtask.status = "executing";
+    await taskStore.set(task);
+
+    this.emit(task, "subtask:executing", {
+      subtaskIndex: subtask.subtaskIndex,
+      agentName: agent.name,
+    });
+    this.emit(task, "agent:thinking", {
+      agent: agent.name,
+      message: `Processing: ${subtask.description}`,
+    });
+
+    try {
+      const response = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 4000,
+        temperature: 0.5,
+        messages: [
+          {
+            role: "system",
+            content: `${this.buildAgentSystemPrompt(agent.name, subtask.capability)}
 
 IMPORTANT FORMATTING RULES:
 - You MUST output your deliverable using Markdown formatting.
 - Use # for main titles, ## for subtitles, and bullet points for lists.
 - If you are writing code, you MUST wrap it in code blocks with the language specified (e.g., \`\`\`javascript ... \`\`\` or \`\`\`solidity ... \`\`\`).
-- Do not just output a wall of text. Structure it professionally.` 
-    },
-    {
-      role: "user",
-      content: `TASK CONTEXT: ${task.description}\n\nYOUR SUBTASK: ${subtask.description}\n\nDeliver your work now. Be thorough, specific, and professionally formatted.`,
-    },
-  ],
-});
+- Do not just output a wall of text. Structure it professionally.`,
+          },
+          {
+            role: "user",
+            content: `TASK CONTEXT: ${task.description}\n\nYOUR SUBTASK: ${subtask.description}\n\nDeliver your work now. Be thorough, specific, and professionally formatted.`,
+          },
+        ],
+      });
+
+      const deliverable = response.choices[0]?.message?.content ?? "";
+      const deliverableHash = keccak256(toBytes(deliverable));
+
+      subtask.deliverable = deliverable;
+      subtask.deliverableHash = deliverableHash;
+      subtask.status = "submitted";
+      subtask.submittedAt = new Date().toISOString();
+      await taskStore.set(task);
+
+      try {
+        await onChainService.settleSubtask(task.onChainTaskId!, subtask.subtaskIndex);
+        task.txHashes[`settle-${subtask.subtaskIndex}`] = deliverableHash;
+        await taskStore.set(task);
+      } catch {}
+
+      this.log(task, "info", `${agent.name} submitted deliverable`, {
+        hash: deliverableHash,
+        preview: deliverable.slice(0, 100) + "...",
+      });
+      this.emit(task, "subtask:submitted", {
+        subtaskIndex: subtask.subtaskIndex,
+        agentName: agent.name,
+        deliverableHash,
+        preview: deliverable.slice(0, 150),
+      });
+    } catch (err) {
+      subtask.status = "disputed";
+      subtask.error = (err as Error).message;
+      await taskStore.set(task);
+      this.log(task, "error", `${agent.name} failed: ${(err as Error).message}`);
+    }
+  }
 
   private async evaluateAndSettle(task: Task): Promise<void> {
     for (const subtask of task.subtasks) {
@@ -372,10 +405,9 @@ IMPORTANT FORMATTING RULES:
         await agentRegistry.recordCompletion(subtask.assignedAgent!.id, subtask.budget);
         await taskStore.set(task);
 
-        this.log(task, "success",
-          `✓ ${subtask.assignedAgent!.name} settled — score ${evaluation.score}/100`,
-          { payout: subtask.budget / 1_000_000 }
-        );
+        this.log(task, "success", `✓ ${subtask.assignedAgent!.name} settled — score ${evaluation.score}/100`, {
+          payout: subtask.budget / 1_000_000,
+        });
         this.emit(task, "subtask:settled", {
           subtaskIndex: subtask.subtaskIndex,
           agentName: subtask.assignedAgent!.name,
@@ -388,9 +420,7 @@ IMPORTANT FORMATTING RULES:
         await agentRegistry.recordDispute(subtask.assignedAgent!.id);
         await taskStore.set(task);
 
-        this.log(task, "warning",
-          `✗ ${subtask.assignedAgent!.name} disputed — ${evaluation.feedback}`
-        );
+        this.log(task, "warning", `✗ ${subtask.assignedAgent!.name} disputed — ${evaluation.feedback}`);
         this.emit(task, "subtask:disputed", {
           subtaskIndex: subtask.subtaskIndex,
           reason: evaluation.feedback,
@@ -404,9 +434,10 @@ IMPORTANT FORMATTING RULES:
       model: "llama-3.3-70b-versatile",
       max_tokens: 500,
       temperature: 0.1,
-      messages: [{
-        role: "user",
-        content: `Evaluate this deliverable for quality and relevance.
+      messages: [
+        {
+          role: "user",
+          content: `Evaluate this deliverable for quality and relevance.
 
 ORIGINAL TASK: ${task.description}
 SUBTASK: ${subtask.description}
@@ -418,7 +449,8 @@ Return ONLY valid JSON (no markdown):
   "score": <0-100>,
   "feedback": "<brief evaluation>"
 }`,
-      }],
+        },
+      ],
     });
 
     const text = response.choices[0]?.message?.content ?? "";
