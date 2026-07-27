@@ -81,7 +81,7 @@ export default function TaskDetail() {
 
     // 3. Force visible layout (NO display: none)
     clone.style.display = "block";
-    clone.style.position = "fixed";
+    clone.style.position = "absolute";
     clone.style.top = "0";
     clone.style.left = "0";
     clone.style.width = "800px";
