@@ -1,61 +1,17 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useCallback } from "react";
 import { useAccount } from "wagmi";
-import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap, Wallet, FileText, FileCode } from "lucide-react";
+import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap, Wallet, FileText, FileCode, FileType } from "lucide-react";
 import { useTask, useWebSocket } from "../hooks/useApi";
 import type { Subtask, WSEvent, SubtaskStatus, LogEntry } from "../types";
 
-// ✅ NEW IMPORTS FOR RICH TEXT & EXPORTS
+// ✅ NEW IMPORTS
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { jsPDF } from "jspdf";
+import { downloadTaskPDF, downloadTaskDOCX, downloadTaskCode, hasCodeBlocks } from "../utils/exports";
 
 const ARC_EXPLORER = "https://testnet.arcscan.app/";
-
-// ─── Helper Functions for Exports ──────────────────────────────────────────────
-
-const downloadCodeFile = (deliverable: string) => {
-  // Extract the first code block from the markdown
-  const codeMatch = deliverable.match(/```(\w+)?\n([\s\S]*?)```/);
-  if (!codeMatch) {
-    alert("No code block found in this deliverable to download!");
-    return;
-  }
-
-  const language = codeMatch[1] || "txt";
-  const codeContent = codeMatch[2];
-
-  // Map language to file extension
-  const extensionMap: Record<string, string> = {
-    javascript: "js", typescript: "ts", python: "py", php: "php", 
-    ruby: "rb", solidity: "sol", rust: "rs", go: "go", html: "html", 
-    css: "css", json: "json", bash: "sh", shell: "sh"
-  };
-  const ext = extensionMap[language.toLowerCase()] || "txt";
-
-  // Create a Blob and trigger download
-  const blob = new Blob([codeContent], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `agentforge-deliverable.${ext}`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-};
-
-const downloadPDF = (deliverable: string, subtaskIndex: number) => {
-  const doc = new jsPDF();
-  // Strip code blocks for simple PDF to avoid formatting issues in basic jsPDF
-  const text = deliverable.replace(/```[\s\S]*?```/g, "[Code Block Omitted - Use 'Download Code' for full source]");
-  const splitText = doc.splitTextToSize(text, 180);
-  doc.text(splitText, 10, 10);
-  doc.save(`subtask-${subtaskIndex + 1}.pdf`);
-};
-
-// ─── Status Config ─────────────────────────────────────────────────────────────
 
 const SUBTASK_STATUS: Record<SubtaskStatus, { label: string; badge: string; icon: React.ReactNode }> = {
   pending:    { label: "Pending",    badge: "badge-muted",   icon: <Clock size={10} /> },
@@ -76,9 +32,7 @@ export default function TaskDetail() {
   useWebSocket(
     useCallback((event: WSEvent) => {
       if (event.taskId !== taskId) return;
-      if (!["connected", "agent:thinking"].includes(event.type)) {
-        refresh();
-      }
+      if (!["connected", "agent:thinking"].includes(event.type)) refresh();
     }, [taskId, refresh])
   );
 
@@ -86,32 +40,20 @@ export default function TaskDetail() {
     return (
       <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: 400, gap: 16 }}>
         <Wallet size={48} color="var(--text-muted)" style={{ opacity: 0.5 }} />
-        <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.9rem", textAlign: "center" }}>
-          Connect your wallet to view task details
-        </div>
-        <button className="btn btn-primary" onClick={() => navigate("/")}>
-          Go to Dashboard
-        </button>
+        <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.9rem", textAlign: "center" }}>Connect your wallet to view task details</div>
+        <button className="btn btn-primary" onClick={() => navigate("/")}>Go to Dashboard</button>
       </div>
     );
   }
 
-  if (!task) {
-    return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 300 }}>
-        <div style={{ color: "var(--text-muted)" }}>Loading task...</div>
-      </div>
-    );
-  }
+  if (!task) return <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 300 }}><div style={{ color: "var(--text-muted)" }}>Loading task...</div></div>;
 
   const budgetUSDC = (task.totalBudget / 1_000_000).toFixed(2);
   const allocatedUSDC = (task.allocatedBudget / 1_000_000).toFixed(2);
   const settledCount = task.subtasks.filter((s) => s.status === "settled").length;
-  const totalEarned = task.subtasks
-    .filter((s) => s.status === "settled")
-    .reduce((sum, s) => sum + s.budget, 0);
-
+  const totalEarned = task.subtasks.filter((s) => s.status === "settled").reduce((sum, s) => sum + s.budget, 0);
   const hasTxHashes = Object.keys(task.txHashes || {}).length > 0;
+  const showCodeButton = hasCodeBlocks(task); // ✅ Smart detection
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -125,13 +67,9 @@ export default function TaskDetail() {
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
               <StatusBadge status={task.status} />
-              {task.onChainTaskId && (
-                <span className="badge badge-arc">On-Chain #{task.onChainTaskId}</span>
-              )}
+              {task.onChainTaskId && <span className="badge badge-arc">On-Chain #{task.onChainTaskId}</span>}
             </div>
-            <p style={{ fontSize: "0.9rem", color: "var(--text-primary)", lineHeight: 1.6 }}>
-              {task.description}
-            </p>
+            <p style={{ fontSize: "0.9rem", color: "var(--text-primary)", lineHeight: 1.6 }}>{task.description}</p>
           </div>
         </div>
 
@@ -143,45 +81,50 @@ export default function TaskDetail() {
           <MiniStat label="Paid Out" value={`$${(totalEarned / 1_000_000).toFixed(4)}`} color="var(--green)" />
         </div>
 
-        {/* Transaction hashes */}
+        {/* ✅ NEW: Consolidated Export Buttons */}
+        {settledCount > 0 && (
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              Export Full Report
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <button className="btn btn-ghost" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: 6 }} onClick={() => downloadTaskPDF(task)}>
+                <FileText size={14} /> Download PDF
+              </button>
+              <button className="btn btn-ghost" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: 6 }} onClick={() => downloadTaskDOCX(task)}>
+                <FileType size={14} /> Download Word (.docx)
+              </button>
+              {showCodeButton && (
+                <button className="btn btn-ghost" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: 6, color: "var(--arc)" }} onClick={() => downloadTaskCode(task)}>
+                  <FileCode size={14} /> Download Source Code
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {hasTxHashes && (
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
-            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              On-chain Transactions
-            </div>
+            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>On-chain Transactions</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {Object.entries(task.txHashes).map(([label, hash]) => (
-                <a
-                  key={label}
-                  href={`${ARC_EXPLORER}/tx/${hash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="badge badge-muted"
-                  style={{ textDecoration: "none", cursor: "pointer" }}
-                >
+                <a key={label} href={`${ARC_EXPLORER}/tx/${hash}`} target="_blank" rel="noopener noreferrer" className="badge badge-muted" style={{ textDecoration: "none", cursor: "pointer" }}>
                   {label} <ExternalLink size={9} />
                 </a>
               ))}
             </div>
           </div>
         )}
-
-        <div style={{ marginTop: 10, fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-          Submitted by: {task.requesterAddress}
-        </div>
+        <div style={{ marginTop: 10, fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>Submitted by: {task.requesterAddress}</div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
         {/* Subtasks */}
         <div>
-          <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
-            Subtasks
-          </div>
+          <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Subtasks</div>
           {task.subtasks.length === 0 ? (
             <div className="card" style={{ textAlign: "center", padding: 32, color: "var(--text-muted)", fontSize: "0.8rem" }}>
-              {["decomposing", "pending"].includes(task.status)
-                ? "Orchestrator is planning subtasks..."
-                : "No subtasks yet"}
+              {["decomposing", "pending"].includes(task.status) ? "Orchestrator is planning subtasks..." : "No subtasks yet"}
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -194,221 +137,118 @@ export default function TaskDetail() {
 
         {/* Log */}
         <div>
-          <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
-            Orchestration Log
-          </div>
+          <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Orchestration Log</div>
           <div className="card" style={{ padding: 0 }}>
             <div className="log-container" style={{ padding: 8, maxHeight: 420 }}>
               {task.orchestrationLog.length === 0 ? (
-                <div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: "0.8rem" }}>
-                  Waiting for orchestrator...
-                </div>
+                <div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: "0.8rem" }}>Waiting for orchestrator...</div>
               ) : (
-                [...task.orchestrationLog].reverse().map((entry, i) => (
-                  <LogLine key={i} entry={entry} />
-                ))
+                [...task.orchestrationLog].reverse().map((entry, i) => <LogLine key={i} entry={entry} />)
               )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* ✅ HIDDEN: Full Report Container for PDF Generation */}
+      <div id="task-full-report" style={{ position: "absolute", left: "-9999px", top: 0, width: "800px", padding: "40px", background: "#ffffff", color: "#000000" }}>
+        <h1 style={{ fontSize: "24px", marginBottom: "10px" }}>{task.description}</h1>
+        <p style={{ fontSize: "14px", color: "#666", marginBottom: "30px" }}>Generated by AgentForge on Arc Blockchain</p>
+        <hr style={{ marginBottom: "30px" }} />
+        
+        {task.subtasks.map((sub, i) => (
+          <div key={sub.id} style={{ marginBottom: "40px" }}>
+            <h2 style={{ fontSize: "20px", color: "#00d4ff", marginBottom: "10px" }}>Subtask {i + 1}: {sub.description}</h2>
+            <div style={{ fontSize: "12px", color: "#888", marginBottom: "15px" }}>Agent: {sub.assignedAgent?.name || "Unassigned"} | Status: {sub.status}</div>
+            
+            {sub.deliverable ? (
+              <div style={{ fontSize: "14px", lineHeight: "1.6" }}>
+                <ReactMarkdown>{sub.deliverable}</ReactMarkdown>
+              </div>
+            ) : (
+              <p style={{ fontStyle: "italic", color: "#999" }}>No deliverable provided for this subtask.</p>
+            )}
+            <hr style={{ marginTop: "30px", borderColor: "#eee" }} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// ─── Subtask Card Component ────────────────────────────────────────────────────
-
+// SubtaskCard (Removed old download buttons, kept clean UI)
 function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
   const cfg = SUBTASK_STATUS[subtask.status];
   const budgetUSDC = (subtask.budget / 1_000_000).toFixed(4);
   const isActive = ["executing", "assigned"].includes(subtask.status);
 
   return (
-    <div
-      className="card animate-fade-in"
-      style={{
-        padding: "14px 16px",
-        borderColor: isActive ? "var(--arc)" : "var(--border)",
-        boxShadow: isActive ? "0 0 8px rgba(0,212,255,0.1)" : "none",
-        transition: "all 0.3s",
-      }}
-    >
+    <div className="card animate-fade-in" style={{ padding: "14px 16px", borderColor: isActive ? "var(--arc)" : "var(--border)", boxShadow: isActive ? "0 0 8px rgba(0,212,255,0.1)" : "none", transition: "all 0.3s" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-muted)" }}>#{index + 1}</span>
-          <span className={`badge ${cfg.badge}`}>
-            {isActive && <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>}
-            {cfg.label}
-          </span>
+          <span className={`badge ${cfg.badge}`}>{isActive && <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>}{cfg.label}</span>
           <span className="badge badge-muted" style={{ fontSize: "0.65rem" }}>{subtask.capability}</span>
         </div>
         <span className="badge badge-usdc">${budgetUSDC}</span>
       </div>
 
-      <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 10, lineHeight: 1.5 }}>
-        {subtask.description}
-      </p>
+      <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 10, lineHeight: 1.5 }}>{subtask.description}</p>
 
       {subtask.assignedAgent && (
-        <div style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 10px",
-          background: "var(--bg)",
-          borderRadius: "var(--radius)",
-          border: "1px solid var(--border)",
-        }}>
-          <div style={{
-            width: 24, height: 24, borderRadius: "50%",
-            background: "var(--arc-dim)",
-            border: "1px solid rgba(0,212,255,0.3)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "0.7rem",
-            ...(isActive ? { animation: "pulse-glow 2s ease-in-out infinite" } : {}),
-          }}>🤖</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--bg)", borderRadius: "var(--radius)", border: "1px solid var(--border)" }}>
+          <div style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--arc-dim)", border: "1px solid rgba(0,212,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem" }}>🤖</div>
           <div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-primary)" }}>
-              {subtask.assignedAgent.name}
-            </div>
-            <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-              Rep: {subtask.assignedAgent.reputationScore}/100
-            </div>
+            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-primary)" }}>{subtask.assignedAgent.name}</div>
+            <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>Rep: {subtask.assignedAgent.reputationScore}/100</div>
           </div>
-          {subtask.status === "settled" && (
-            <div style={{ marginLeft: "auto", color: "var(--green)", fontSize: "0.7rem", fontFamily: "var(--font-mono)" }}>
-              ✓ Paid
-            </div>
-          )}
+          {subtask.status === "settled" && <div style={{ marginLeft: "auto", color: "var(--green)", fontSize: "0.7rem", fontFamily: "var(--font-mono)" }}>✓ Paid</div>}
         </div>
       )}
 
-      {/* ✅ UPDATED: Rich Markdown Rendering & Export Buttons */}
+      {/* Clean Deliverable View (No buttons here anymore) */}
       {subtask.deliverable && subtask.status === "settled" && (
-        <div style={{ marginTop: 12 }}>
-          {/* Action Buttons */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <button
-              className="btn btn-ghost"
-              style={{ fontSize: "0.7rem", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4 }}
-              onClick={() => downloadPDF(subtask.deliverable, subtask.subtaskIndex)}
-            >
-              <FileText size={12} /> Export PDF
-            </button>
-            <button
-              className="btn btn-ghost"
-              style={{ fontSize: "0.7rem", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4 }}
-              onClick={() => downloadCodeFile(subtask.deliverable)}
-            >
-              <FileCode size={12} /> Download Code
-            </button>
-          </div>
-
-          {/* Rendered Deliverable */}
-          <div style={{
-            padding: 16,
-            background: "var(--bg)",
-            borderRadius: "var(--radius)",
-            border: "1px solid var(--border)",
-            fontSize: "0.85rem",
-            color: "var(--text-secondary)",
-            lineHeight: 1.6,
-            maxHeight: 500,
-            overflow: "auto",
-          }}>
-            <ReactMarkdown
-              components={{
-                // Syntax highlighting for code blocks
-                code({ node, inline, className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || "");
-                  return !inline && match ? (
-                    <SyntaxHighlighter
-                      style={vscDarkPlus}
-                      language={match[1]}
-                      PreTag="div"
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, "")}
-                    </SyntaxHighlighter>
-                  ) : (
-                    <code className={className} style={{ background: "var(--bg-hover)", padding: "2px 4px", borderRadius: 4, fontSize: "0.8em" }} {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-                // Clean typography for Markdown elements
-                h1: ({children}) => <h1 style={{color: "var(--text-primary)", fontSize: "1.2rem", marginBottom: "8px", marginTop: "16px"}}>{children}</h1>,
-                h2: ({children}) => <h2 style={{color: "var(--text-primary)", fontSize: "1.1rem", marginBottom: "6px", marginTop: "12px"}}>{children}</h2>,
-                h3: ({children}) => <h3 style={{color: "var(--text-primary)", fontSize: "1rem", marginBottom: "6px", marginTop: "10px"}}>{children}</h3>,
-                ul: ({children}) => <ul style={{marginBottom: "8px", paddingLeft: "20px"}}>{children}</ul>,
-                ol: ({children}) => <ol style={{marginBottom: "8px", paddingLeft: "20px"}}>{children}</ol>,
-                p: ({children}) => <p style={{marginBottom: "8px"}}>{children}</p>,
-                blockquote: ({children}) => <blockquote style={{borderLeft: "3px solid var(--arc)", paddingLeft: "12px", margin: "8px 0", color: "var(--text-muted)"}}>{children}</blockquote>,
-              }}
-            >
-              {subtask.deliverable}
-            </ReactMarkdown>
-          </div>
-        </div>
-      )}
-
-      {subtask.deliverableHash && (
-        <div style={{ marginTop: 8, fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", display: "flex", alignItems: "center", gap: 6 }}>
-          <span>Hash: {String(subtask.deliverableHash).slice(0, 20)}...</span>
-          <a
-            href={`${ARC_EXPLORER}/tx/${subtask.deliverableHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "var(--arc)", textDecoration: "none", display: "flex", alignItems: "center", gap: 3 }}
+        <div style={{ marginTop: 12, padding: 16, background: "var(--bg)", borderRadius: "var(--radius)", border: "1px solid var(--border)", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.6, maxHeight: 400, overflow: "auto" }}>
+          <ReactMarkdown
+            components={{
+              code({ node, inline, className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || "");
+                return !inline && match ? (
+                  <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" {...props}>{String(children).replace(/\n$/, "")}</SyntaxHighlighter>
+                ) : (
+                  <code className={className} style={{ background: "var(--bg-hover)", padding: "2px 4px", borderRadius: 4, fontSize: "0.8em" }} {...props}>{children}</code>
+                );
+              },
+              h1: ({children}) => <h1 style={{color: "var(--text-primary)", fontSize: "1.2rem", marginBottom: "8px"}}>{children}</h1>,
+              h2: ({children}) => <h2 style={{color: "var(--text-primary)", fontSize: "1.1rem", marginBottom: "6px"}}>{children}</h2>,
+              ul: ({children}) => <ul style={{marginBottom: "8px", paddingLeft: "20px"}}>{children}</ul>,
+              p: ({children}) => <p style={{marginBottom: "8px"}}>{children}</p>,
+            }}
           >
-            View <ExternalLink size={9} />
-          </a>
+            {subtask.deliverable}
+          </ReactMarkdown>
         </div>
       )}
     </div>
   );
 }
 
-// ─── Helper Components ─────────────────────────────────────────────────────────
-
 function LogLine({ entry }: { entry: LogEntry }) {
-  const colors: Record<string, string> = {
-    success: "var(--green)",
-    warning: "var(--yellow)",
-    error: "var(--red)",
-    info: "var(--text-secondary)",
-  };
-
+  const colors: Record<string, string> = { success: "var(--green)", warning: "var(--yellow)", error: "var(--red)", info: "var(--text-secondary)" };
   return (
     <div style={{ display: "flex", gap: 8, padding: "5px 8px", borderRadius: "var(--radius)", fontSize: "0.72rem", lineHeight: 1.5 }}>
-      <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", flexShrink: 0, fontSize: "0.65rem", marginTop: 1 }}>
-        {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-      </span>
-      <span style={{ color: colors[entry.level], flex: 1, wordBreak: "break-word" }}>
-        {entry.message}
-      </span>
+      <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", flexShrink: 0, fontSize: "0.65rem", marginTop: 1 }}>{new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+      <span style={{ color: colors[entry.level], flex: 1, wordBreak: "break-word" }}>{entry.message}</span>
     </div>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    pending: "badge-muted", decomposing: "badge-yellow", assigning: "badge-arc",
-    executing: "badge-arc", evaluating: "badge-yellow", completed: "badge-green",
-    failed: "badge-red", cancelled: "badge-muted",
-  };
+  const map: Record<string, string> = { pending: "badge-muted", decomposing: "badge-yellow", assigning: "badge-arc", executing: "badge-arc", evaluating: "badge-yellow", completed: "badge-green", failed: "badge-red", cancelled: "badge-muted" };
   const active = ["decomposing", "assigning", "executing", "evaluating"].includes(status);
-  return (
-    <span className={`badge ${map[status] || "badge-muted"}`}>
-      {active && <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>}
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
+  return (<span className={`badge ${map[status] || "badge-muted"}`}>{active && <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>}{status.charAt(0).toUpperCase() + status.slice(1)}</span>);
 }
 
 function MiniStat({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <div style={{ padding: "10px 12px", background: "var(--bg)", borderRadius: "var(--radius)", border: "1px solid var(--border)" }}>
-      <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{label}</div>
-      <div style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "1rem", color }}>{value}</div>
-    </div>
-  );
+  return (<div style={{ padding: "10px 12px", background: "var(--bg)", borderRadius: "var(--radius)", border: "1px solid var(--border)" }}><div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{label}</div><div style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "1rem", color }}>{value}</div></div>);
 }
