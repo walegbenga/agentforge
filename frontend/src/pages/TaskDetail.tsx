@@ -1,15 +1,14 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback, useState } from "react"; // ✅ Added useState
+import { useCallback } from "react";
 import { useAccount } from "wagmi";
 import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap, Wallet, FileText, FileCode, FileType } from "lucide-react";
 import { useTask, useWebSocket } from "../hooks/useApi";
 import type { Subtask, WSEvent, SubtaskStatus, LogEntry } from "../types";
 
-// ✅ NEW IMPORTS
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { downloadTaskPDF, downloadTaskDOCX, downloadTaskCode, hasCodeBlocks, getSafeFilename } from "../utils/exports"; // ✅ Added getSafeFilename
+import { generatePDF, downloadTaskDOCX, downloadTaskCode, hasCodeBlocks, getSafeFilename } from "../utils/exports";
 
 const ARC_EXPLORER = "https://testnet.arcscan.app/";
 
@@ -28,9 +27,6 @@ export default function TaskDetail() {
   const navigate = useNavigate();
   const { isConnected } = useAccount();
   const { task, refresh } = useTask(taskId ?? null);
-  
-  // ✅ NEW: State to temporarily show the report for PDF capture
-  const [isExporting, setIsExporting] = useState(false);
 
   useWebSocket(
     useCallback((event: WSEvent) => {
@@ -56,19 +52,46 @@ export default function TaskDetail() {
   const settledCount = task.subtasks.filter((s) => s.status === "settled").length;
   const totalEarned = task.subtasks.filter((s) => s.status === "settled").reduce((sum, s) => sum + s.budget, 0);
   const hasTxHashes = Object.keys(task.txHashes || {}).length > 0;
-  const showCodeButton = hasCodeBlocks(task); // ✅ Smart detection
+  const showCodeButton = hasCodeBlocks(task);
 
-  // ✅ NEW: Wrapper function to handle PDF export timing
+  // ✅ ROBUST PDF EXPORT: Temporarily forces visibility, captures, then hides
   const handleExportPDF = async () => {
-    setIsExporting(true);
-    // Wait 100ms for React to render the element visibly
+    const element = document.getElementById("task-full-report");
+    if (!element) return;
+
+    // 1. Save original hidden styles
+    const originalStyle = {
+      position: element.style.position,
+      top: element.style.top,
+      left: element.style.left,
+      zIndex: element.style.zIndex,
+      visibility: element.style.visibility,
+    };
+
+    // 2. Force visible and on-top for html2canvas
+    element.style.position = "fixed";
+    element.style.top = "0";
+    element.style.left = "0";
+    element.style.zIndex = "9999";
+    element.style.visibility = "visible";
+
+    // 3. Wait 100ms for browser to paint the element
     await new Promise(resolve => setTimeout(resolve, 100));
-    
-    const filename = getSafeFilename(task.description, "pdf");
-    downloadTaskPDF("task-full-report", filename);
-    
-    // Hide it again after capture starts
-    setTimeout(() => setIsExporting(false), 500);
+
+    try {
+      const filename = getSafeFilename(task.description, "pdf");
+      await generatePDF(element, filename);
+    } catch (err) {
+      console.error("PDF export failed", err);
+      alert("Failed to generate PDF. Please try again.");
+    } finally {
+      // 4. Immediately restore hidden state
+      element.style.position = originalStyle.position || "absolute";
+      element.style.top = originalStyle.top || "0";
+      element.style.left = originalStyle.left || "-9999px";
+      element.style.zIndex = originalStyle.zIndex || "-9999";
+      element.style.visibility = originalStyle.visibility || "hidden";
+    }
   };
 
   return (
@@ -97,7 +120,7 @@ export default function TaskDetail() {
           <MiniStat label="Paid Out" value={`$${(totalEarned / 1_000_000).toFixed(4)}`} color="var(--green)" />
         </div>
 
-        {/* ✅ NEW: Consolidated Export Buttons */}
+        {/* Export Buttons */}
         {settledCount > 0 && (
           <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
             <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
@@ -166,19 +189,19 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      {/* ✅ UPDATED: Hidden Report Container for PDF Generation */}
+      {/* ✅ BULLETPROOF HIDDEN CONTAINER */}
       <div 
         id="task-full-report" 
         style={{ 
-          position: "fixed", 
-          top: isExporting ? "0" : "-9999px", // ✅ Only visible when exporting
-          left: "0", 
+          position: "absolute",
+          left: "-9999px",
+          top: "0",
           width: "800px", 
           padding: "40px", 
           background: "#ffffff", 
           color: "#000000",
-          zIndex: isExporting ? 9999 : -1,
-          boxShadow: isExporting ? "0 0 20px rgba(0,0,0,0.5)" : "none"
+          visibility: "hidden",
+          zIndex: -9999
         }}
       >
         <h1 style={{ fontSize: "24px", marginBottom: "10px", color: "#111827" }}>{task.description}</h1>
@@ -207,7 +230,7 @@ export default function TaskDetail() {
   );
 }
 
-// SubtaskCard (Removed old download buttons, kept clean UI)
+// SubtaskCard
 function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
   const cfg = SUBTASK_STATUS[subtask.status];
   const budgetUSDC = (subtask.budget / 1_000_000).toFixed(4);
@@ -237,7 +260,6 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
         </div>
       )}
 
-      {/* Clean Deliverable View (No buttons here anymore) */}
       {subtask.deliverable && subtask.status === "settled" && (
         <div style={{ marginTop: 12, padding: 16, background: "var(--bg)", borderRadius: "var(--radius)", border: "1px solid var(--border)", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.6, maxHeight: 400, overflow: "auto" }}>
           <ReactMarkdown

@@ -20,11 +20,8 @@ export const hasCodeBlocks = (task: Task): boolean => {
   return task.subtasks.some((sub) => /```[\s\S]*?```/.test(sub.deliverable || ""));
 };
 
-// 3. Download Consolidated PDF
-export const downloadTaskPDF = (elementId: string, filename: string): void => {
-  const element = document.getElementById(elementId);
-  if (!element) return;
-
+// 3. Generate PDF from Element
+export const generatePDF = async (element: HTMLElement, filename: string): Promise<void> => {
   const opt = {
     margin: 0.5,
     filename: filename,
@@ -33,12 +30,12 @@ export const downloadTaskPDF = (elementId: string, filename: string): void => {
       scale: 2, 
       backgroundColor: "#ffffff", 
       useCORS: true,
-      logging: false 
+      logging: false,
+      windowWidth: 800, // Forces correct width for capture
     },
     jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
   };
-
-  html2pdf().set(opt).from(element).save();
+  await html2pdf().set(opt).from(element).save();
 };
 
 // 4. Download Consolidated DOCX (Word)
