@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useAccount } from "wagmi";
 import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap, Wallet, FileText, FileCode, FileType } from "lucide-react";
 import { useTask, useWebSocket } from "../hooks/useApi";
@@ -8,7 +8,8 @@ import type { Subtask, WSEvent, SubtaskStatus, LogEntry } from "../types";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { generatePDF, downloadTaskDOCX, downloadTaskCode, hasCodeBlocks, getSafeFilename } from "../utils/exports";
+import { downloadTaskDOCX, downloadTaskCode, hasCodeBlocks, getSafeFilename } from "../utils/exports";
+import { useReactToPrint } from "react-to-print"; // ✅ NEW IMPORT
 
 const ARC_EXPLORER = "https://testnet.arcscan.app/";
 
@@ -27,6 +28,15 @@ export default function TaskDetail() {
   const navigate = useNavigate();
   const { isConnected } = useAccount();
   const { task, refresh } = useTask(taskId ?? null);
+
+  // ✅ NEW: Ref for the print component
+  const reportRef = useRef<HTMLDivElement>(null);
+
+  // ✅ NEW: React-to-print hook
+  const handlePrint = useReactToPrint({
+    contentRef: reportRef,
+    documentTitle: getSafeFilename(task?.description || "report", "pdf"),
+  });
 
   useWebSocket(
     useCallback((event: WSEvent) => {
@@ -56,64 +66,9 @@ export default function TaskDetail() {
   const budgetUSDC = (task.totalBudget / 1_000_000).toFixed(2);
   const allocatedUSDC = (task.allocatedBudget / 1_000_000).toFixed(2);
   const settledCount = task.subtasks.filter((s) => s.status === "settled").length;
-  const totalEarned = task.subtasks
-    .filter((s) => s.status === "settled")
-    .reduce((sum, s) => sum + s.budget, 0);
+  const totalEarned = task.subtasks.filter((s) => s.status === "settled").reduce((sum, s) => sum + s.budget, 0);
   const hasTxHashes = Object.keys(task.txHashes || {}).length > 0;
   const showCodeButton = hasCodeBlocks(task);
-
-  // ✅ THE ULTIMATE HYBRID: Clone + CSS Injection + ChatGPT's Timing
-  const handleExportPDF = async () => {
-    const originalElement = document.getElementById("task-full-report");
-    if (!originalElement) {
-      console.error("❌ Element #task-full-report not found!");
-      return;
-    }
-
-    console.log("📏 ORIGINAL HTML LENGTH:", originalElement.innerHTML.length);
-
-    // 1. Clone the element
-    const clone = originalElement.cloneNode(true) as HTMLElement;
-
-    // 2. 🔥 INJECT CSS TO FORCE BLACK TEXT (Fixes the white-on-white bug)
-    const style = document.createElement("style");
-    style.innerHTML = `
-      * { color: #000000 !important; background-color: transparent !important; }
-      body { background-color: #ffffff !important; }
-      h1, h2, h3 { color: #111827 !important; }
-      pre, code { background-color: #f3f4f6 !important; color: #000000 !important; border: 1px solid #e5e7eb !important; padding: 4px !important; border-radius: 4px !important; }
-      .badge { background-color: #e5e7eb !important; color: #000000 !important; border: 1px solid #d1d5db !important; }
-    `;
-    clone.prepend(style);
-
-    // 3. Force visible layout
-    clone.style.position = "fixed";
-    clone.style.top = "0";
-    clone.style.left = "0";
-    clone.style.width = "800px";
-    clone.style.zIndex = "99999";
-    clone.style.backgroundColor = "#ffffff";
-    clone.style.color = "#000000";
-    clone.style.padding = "40px";
-    clone.style.visibility = "visible";
-    clone.style.opacity = "1";
-
-    document.body.appendChild(clone);
-
-    // 4. ChatGPT's excellent timing fix + font ready
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    await document.fonts.ready;
-
-    try {
-      const filename = getSafeFilename(task.description, "pdf");
-      await generatePDF(clone, filename);
-    } catch (err) {
-      console.error("PDF export failed", err);
-      alert("Failed to generate PDF. Please try again.");
-    } finally {
-      document.body.removeChild(clone);
-    }
-  };
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -148,7 +103,7 @@ export default function TaskDetail() {
               Export Full Report
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-              <button className="btn btn-ghost" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: 6 }} onClick={handleExportPDF}>
+              <button className="btn btn-ghost" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: 6 }} onClick={handlePrint}>
                 <FileText size={14} /> Download PDF
               </button>
               <button className="btn btn-ghost" style={{ fontSize: "0.75rem", display: "flex", alignItems: "center", gap: 6 }} onClick={() => downloadTaskDOCX(task)}>
@@ -210,8 +165,9 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      {/* ✅ HIDDEN CONTAINER: Complete and intact */}
+      {/* ✅ HIDDEN CONTAINER FOR PRINTING (Updated to ForgeOps AI) */}
       <div 
+        ref={reportRef} 
         id="task-full-report" 
         style={{ 
           position: "absolute", 
@@ -224,7 +180,7 @@ export default function TaskDetail() {
         }}
       >
         <h1 style={{ fontSize: "24px", marginBottom: "10px", color: "#111827" }}>{task.description}</h1>
-        <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "30px" }}>Generated by AgentForge on Arc Blockchain</p>
+        <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "30px" }}>Generated by ForgeOps AI on Arc Blockchain</p>
         <hr style={{ marginBottom: "30px", borderColor: "#e5e7eb" }} />
         
         {task.subtasks.map((sub, i) => (
@@ -249,7 +205,8 @@ export default function TaskDetail() {
   );
 }
 
-// ✅ ALL HELPER COMPONENTS KEPT INTACT
+// ─── Helper Components ─────────────────────────────────────────────────────────
+
 function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
   const cfg = SUBTASK_STATUS[subtask.status];
   const budgetUSDC = (subtask.budget / 1_000_000).toFixed(4);

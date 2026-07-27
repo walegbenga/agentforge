@@ -248,3 +248,41 @@ input[type="range"]::-webkit-slider-thumb {
 .text-yellow { color: var(--yellow); }
 .text-muted { color: var(--text-muted); }
 .text-secondary { color: var(--text-secondary); }
+
+
+/* ✅ PRINT STYLES: Hides everything except the report */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #task-full-report, #task-full-report * {
+    visibility: visible;
+  }
+  #task-full-report {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    opacity: 1 !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    padding: 40px !important;
+    z-index: 99999 !important;
+  }
+  
+  /* Force black text and white background for print */
+  * {
+    color: #000000 !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+  
+  /* Give code blocks a light gray background so they are visible */
+  pre, code {
+    background-color: #f3f4f6 !important;
+    color: #000000 !important;
+    border: 1px solid #e5e7eb !important;
+    padding: 8px !important;
+    border-radius: 4px !important;
+  }
+}
