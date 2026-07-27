@@ -20,21 +20,26 @@ export const hasCodeBlocks = (task: Task): boolean => {
   return task.subtasks.some((sub) => /```[\s\S]*?```/.test(sub.deliverable || ""));
 };
 
-// 3. Generate PDF from Element
+// 3. Generate PDF from Element (✅ UPDATED WITH CRITICAL FIXES)
 export const generatePDF = async (element: HTMLElement, filename: string): Promise<void> => {
   const opt = {
     margin: 0.5,
-    filename: filename,
-    image: { type: "jpeg", quality: 0.98 },
-    html2canvas: { 
-      scale: 2, 
-      backgroundColor: "#ffffff", 
+    filename,
+    image: { type: "jpeg", quality: 1 }, // 🔥 Updated to 1 for maximum clarity
+    html2canvas: {
+      scale: 2,
       useCORS: true,
-      logging: false,
+      backgroundColor: "#ffffff",
+      scrollY: 0, // 🔥 CRITICAL FIX: Prevents cutoff/blank captures by forcing top alignment
       windowWidth: 800, // Forces correct width for capture
     },
-    jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+    jsPDF: {
+      unit: "in",
+      format: "letter",
+      orientation: "portrait",
+    },
   };
+
   await html2pdf().set(opt).from(element).save();
 };
 
@@ -65,6 +70,7 @@ export const downloadTaskDOCX = async (task: Task): Promise<void> => {
       })
     );
 
+    // Strip markdown syntax for clean Word document rendering
     const cleanText = sub.deliverable
       .replace(/```[\s\S]*?```/g, "[Code Block - See PDF or Code Download]")
       .replace(/#{1,6}\s/g, "")
@@ -109,11 +115,13 @@ export const downloadTaskCode = (task: Task): void => {
   const taskNameBase = getSafeFilename(task.description, "").replace(/\./g, "") || "agentforge_task";
 
   if (codeBlocks.length === 1) {
+    // Single file: Use the subtask description for a meaningful name
     const ext = codeBlocks[0].lang === "javascript" ? "js" : codeBlocks[0].lang;
     const fileBase = getSafeFilename(codeBlocks[0].description, "").replace(/\./g, "") || taskNameBase;
     const blob = new Blob([codeBlocks[0].code], { type: "text/plain" });
     saveAs(blob, `${fileBase}.${ext}`);
   } else {
+    // Multiple files: Create a ZIP with descriptive names
     const zip = new JSZip();
     codeBlocks.forEach((block) => {
       const ext = block.lang === "javascript" ? "js" : block.lang;
