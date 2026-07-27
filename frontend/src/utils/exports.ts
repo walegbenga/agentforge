@@ -5,12 +5,12 @@ import html2pdf from "html2pdf.js";
 import type { Task, Subtask } from "../types";
 
 // 1. Sanitize Name for Filenames
-export const getSafeFilename = (description: string, extension: string) => {
+export const getSafeFilename = (description: string, extension: string): string => {
   const safeName = description
-    .substring(0, 50) // Increased to 50 chars for better context
+    .substring(0, 50)
     .replace(/[^a-z0-9]/gi, "_")
     .toLowerCase()
-    .replace(/_+$/, ""); // remove trailing underscores
+    .replace(/_+$/, "");
   
   return safeName ? `${safeName}.${extension}` : `file.${extension}`;
 };
@@ -21,7 +21,7 @@ export const hasCodeBlocks = (task: Task): boolean => {
 };
 
 // 3. Download Consolidated PDF
-export const downloadTaskPDF = (elementId: string, filename: string) {
+export const downloadTaskPDF = (elementId: string, filename: string): void => {
   const element = document.getElementById(elementId);
   if (!element) return;
 
@@ -42,7 +42,7 @@ export const downloadTaskPDF = (elementId: string, filename: string) {
 };
 
 // 4. Download Consolidated DOCX (Word)
-export const downloadTaskDOCX = async (task: Task) => {
+export const downloadTaskDOCX = async (task: Task): Promise<void> => {
   const filename = getSafeFilename(task.description, "docx");
 
   const children: Paragraph[] = [
@@ -88,7 +88,7 @@ export const downloadTaskDOCX = async (task: Task) => {
 };
 
 // 5. Smart Code Download with Descriptive Filenames
-export const downloadTaskCode = (task: Task) => {
+export const downloadTaskCode = (task: Task): void => {
   const codeBlocks: { lang: string; code: string; subtaskIndex: number; description: string }[] = [];
 
   task.subtasks.forEach((sub, index) => {
@@ -112,13 +112,11 @@ export const downloadTaskCode = (task: Task) => {
   const taskNameBase = getSafeFilename(task.description, "").replace(/\./g, "") || "agentforge_task";
 
   if (codeBlocks.length === 1) {
-    // Single file: Use the subtask description for a meaningful name
     const ext = codeBlocks[0].lang === "javascript" ? "js" : codeBlocks[0].lang;
     const fileBase = getSafeFilename(codeBlocks[0].description, "").replace(/\./g, "") || taskNameBase;
     const blob = new Blob([codeBlocks[0].code], { type: "text/plain" });
     saveAs(blob, `${fileBase}.${ext}`);
   } else {
-    // Multiple files: Create a ZIP with descriptive names
     const zip = new JSZip();
     codeBlocks.forEach((block) => {
       const ext = block.lang === "javascript" ? "js" : block.lang;
