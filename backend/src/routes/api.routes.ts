@@ -43,7 +43,7 @@ const CreateTaskSchema = z.object({
 
 // ✅ PROTECTED: Requires valid SIWE signature
 // TEMPORARY: Revert to synchronous to fix healthcheck
-router.post("/tasks", verifySiwe, async (req: Request, res: Response) => {
+/*router.post("/tasks", verifySiwe, async (req: Request, res: Response) => {
   try {
     const verifiedAddress = (req as any).verifiedAddress;
     const body = CreateTaskSchema.parse(req.body);
@@ -59,8 +59,8 @@ router.post("/tasks", verifySiwe, async (req: Request, res: Response) => {
     if (err.name === "ZodError") return res.status(400).json({ success: false, error: err.errors });
     res.status(500).json({ success: false, error: err.message });
   }
-});
-/*router.post("/tasks", verifySiwe, async (req: Request, res: Response) => {
+});*/
+router.post("/tasks", verifySiwe, async (req: Request, res: Response) => {
   try {
     const verifiedAddress = (req as any).verifiedAddress;
     const body = CreateTaskSchema.parse(req.body);
@@ -77,7 +77,7 @@ router.post("/tasks", verifySiwe, async (req: Request, res: Response) => {
     if (err.name === "ZodError") return res.status(400).json({ success: false, error: err.errors });
     res.status(500).json({ success: false, error: err.message });
   }
-});*/
+});
 
 router.get("/tasks", async (req: Request, res: Response) => {
   try {

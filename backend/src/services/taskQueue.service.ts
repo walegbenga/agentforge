@@ -1,11 +1,15 @@
 import { Queue, Worker } from "bullmq";
-import { Redis } from "ioredis"; // ✅ FIX 1: Named import for ESM compatibility
+import { Redis } from "ioredis"; // ✅ Named import is required for ESM
 import { orchestrationEngine } from "./orchestration.service.js";
 import { taskStore } from "./taskStore.service.js";
 import { randomUUID } from "crypto";
 
 const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-const redisConnection = new Redis(redisUrl);
+
+// ✅ CRITICAL FIX: maxRetriesPerRequest MUST be null for BullMQ to work
+const redisConnection = new Redis(redisUrl, {
+  maxRetriesPerRequest: null,
+});
 
 // 1. Define the Queue
 export const taskQueue = new Queue("task-creation", { connection: redisConnection });
@@ -35,14 +39,14 @@ export async function queueTaskCreation(params: {
 }) {
   const taskId = randomUUID();
   
-  // ✅ FIX 2: Use "pending" to match the existing TaskStatus type
+  // Create an initial "pending" task so the frontend can display it immediately
   const initialTask = {
     id: taskId,
     requesterAddress: params.requesterAddress.toLowerCase(),
     description: params.description,
     totalBudget: params.budget,
     allocatedBudget: 0,
-    status: "pending" as const, 
+    status: "pending" as const, // ✅ Uses valid TaskStatus
     subtasks: [],
     orchestrationLog: [
       {
