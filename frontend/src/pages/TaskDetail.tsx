@@ -39,22 +39,30 @@ export default function TaskDetail() {
     return (
       <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: 400, gap: 16 }}>
         <Wallet size={48} color="var(--text-muted)" style={{ opacity: 0.5 }} />
-        <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.9rem", textAlign: "center" }}>Connect your wallet to view task details</div>
+        <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.9rem", textAlign: "center" }}>
+          Connect your wallet to view task details
+        </div>
         <button className="btn btn-primary" onClick={() => navigate("/")}>Go to Dashboard</button>
       </div>
     );
   }
 
-  if (!task) return <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 300 }}><div style={{ color: "var(--text-muted)" }}>Loading task...</div></div>;
+  if (!task) return (
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 300 }}>
+      <div style={{ color: "var(--text-muted)" }}>Loading task...</div>
+    </div>
+  );
 
   const budgetUSDC = (task.totalBudget / 1_000_000).toFixed(2);
   const allocatedUSDC = (task.allocatedBudget / 1_000_000).toFixed(2);
   const settledCount = task.subtasks.filter((s) => s.status === "settled").length;
-  const totalEarned = task.subtasks.filter((s) => s.status === "settled").reduce((sum, s) => sum + s.budget, 0);
+  const totalEarned = task.subtasks
+    .filter((s) => s.status === "settled")
+    .reduce((sum, s) => sum + s.budget, 0);
   const hasTxHashes = Object.keys(task.txHashes || {}).length > 0;
   const showCodeButton = hasCodeBlocks(task);
 
-  // ✅ NUCLEAR OPTION: Manipulate the ORIGINAL element directly
+  // ✅ THE ULTIMATE HYBRID: Clone + CSS Injection + ChatGPT's Timing
   const handleExportPDF = async () => {
     const originalElement = document.getElementById("task-full-report");
     if (!originalElement) {
@@ -64,51 +72,46 @@ export default function TaskDetail() {
 
     console.log("📏 ORIGINAL HTML LENGTH:", originalElement.innerHTML.length);
 
-    // 1. Save the original styles so we can revert them later
-    const originalStyles = {
-      position: originalElement.style.position,
-      left: originalElement.style.left,
-      top: originalElement.style.top,
-      opacity: originalElement.style.opacity,
-      pointerEvents: originalElement.style.pointerEvents,
-      zIndex: originalElement.style.zIndex,
-      width: originalElement.style.width,
-    };
+    // 1. Clone the element
+    const clone = originalElement.cloneNode(true) as HTMLElement;
 
-    // 2. Force the ORIGINAL element to be visible and on top
-    originalElement.style.position = "fixed";
-    originalElement.style.left = "0";
-    originalElement.style.top = "0";
-    originalElement.style.width = "100vw";
-    originalElement.style.zIndex = "99999";
-    originalElement.style.opacity = "1";
-    originalElement.style.pointerEvents = "auto";
-    originalElement.style.backgroundColor = "#ffffff";
-    originalElement.style.color = "#000000";
-    originalElement.style.padding = "40px";
+    // 2. 🔥 INJECT CSS TO FORCE BLACK TEXT (Fixes the white-on-white bug)
+    const style = document.createElement("style");
+    style.innerHTML = `
+      * { color: #000000 !important; background-color: transparent !important; }
+      body { background-color: #ffffff !important; }
+      h1, h2, h3 { color: #111827 !important; }
+      pre, code { background-color: #f3f4f6 !important; color: #000000 !important; border: 1px solid #e5e7eb !important; padding: 4px !important; border-radius: 4px !important; }
+      .badge { background-color: #e5e7eb !important; color: #000000 !important; border: 1px solid #d1d5db !important; }
+    `;
+    clone.prepend(style);
 
-    // 3. Wait for the browser to paint the original element
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // 3. Force visible layout
+    clone.style.position = "fixed";
+    clone.style.top = "0";
+    clone.style.left = "0";
+    clone.style.width = "800px";
+    clone.style.zIndex = "99999";
+    clone.style.backgroundColor = "#ffffff";
+    clone.style.color = "#000000";
+    clone.style.padding = "40px";
+    clone.style.visibility = "visible";
+    clone.style.opacity = "1";
+
+    document.body.appendChild(clone);
+
+    // 4. ChatGPT's excellent timing fix + font ready
+    await new Promise((resolve) => setTimeout(resolve, 300));
     await document.fonts.ready;
 
     try {
       const filename = getSafeFilename(task.description, "pdf");
-      await generatePDF(originalElement, filename);
+      await generatePDF(clone, filename);
     } catch (err) {
       console.error("PDF export failed", err);
       alert("Failed to generate PDF. Please try again.");
     } finally {
-      // 4. IMMEDIATELY revert the styles to hide it again
-      originalElement.style.position = originalStyles.position || "absolute";
-      originalElement.style.left = originalStyles.left || "-9999px";
-      originalElement.style.top = originalStyles.top || "0";
-      originalElement.style.opacity = originalStyles.opacity || "0";
-      originalElement.style.pointerEvents = originalStyles.pointerEvents || "none";
-      originalElement.style.zIndex = originalStyles.zIndex || "-9999";
-      originalElement.style.width = originalStyles.width || "800px";
-      originalElement.style.backgroundColor = "";
-      originalElement.style.color = "";
-      originalElement.style.padding = "";
+      document.body.removeChild(clone);
     }
   };
 
@@ -207,7 +210,7 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      {/* ✅ HIDDEN CONTAINER: Completely hidden initially, rendered by React */}
+      {/* ✅ HIDDEN CONTAINER: Complete and intact */}
       <div 
         id="task-full-report" 
         style={{ 
@@ -246,7 +249,7 @@ export default function TaskDetail() {
   );
 }
 
-// SubtaskCard
+// ✅ ALL HELPER COMPONENTS KEPT INTACT
 function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
   const cfg = SUBTASK_STATUS[subtask.status];
   const budgetUSDC = (subtask.budget / 1_000_000).toFixed(4);
@@ -262,9 +265,7 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
         </div>
         <span className="badge badge-usdc">${budgetUSDC}</span>
       </div>
-
       <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 10, lineHeight: 1.5 }}>{subtask.description}</p>
-
       {subtask.assignedAgent && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--bg)", borderRadius: "var(--radius)", border: "1px solid var(--border)" }}>
           <div style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--arc-dim)", border: "1px solid rgba(0,212,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem" }}>🤖</div>
@@ -275,7 +276,6 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
           {subtask.status === "settled" && <div style={{ marginLeft: "auto", color: "var(--green)", fontSize: "0.7rem", fontFamily: "var(--font-mono)" }}>✓ Paid</div>}
         </div>
       )}
-
       {subtask.deliverable && subtask.status === "settled" && (
         <div style={{ marginTop: 12, padding: 16, background: "var(--bg)", borderRadius: "var(--radius)", border: "1px solid var(--border)", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.6, maxHeight: 400, overflow: "auto" }}>
           <ReactMarkdown

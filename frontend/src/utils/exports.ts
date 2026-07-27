@@ -20,7 +20,7 @@ export const hasCodeBlocks = (task: Task): boolean => {
   return task.subtasks.some((sub) => /```[\s\S]*?```/.test(sub.deliverable || ""));
 };
 
-// 3. Generate PDF from Element (✅ SIMPLIFIED AND ROBUST)
+// 3. Generate PDF from Element (✅ CHATGPT'S IMPROVED CONFIG)
 export const generatePDF = async (element: HTMLElement, filename: string): Promise<void> => {
   const opt = {
     margin: 0.5,
@@ -31,9 +31,9 @@ export const generatePDF = async (element: HTMLElement, filename: string): Promi
       useCORS: true,
       backgroundColor: "#ffffff",
       scrollY: 0,
-      windowWidth: element.scrollWidth, // 🔥 Use the element's actual width
-      windowHeight: element.scrollHeight, // 🔥 Use the element's actual height
       logging: false,
+      windowWidth: document.documentElement.scrollWidth, // 🔥 Captures full width
+      windowHeight: document.documentElement.scrollHeight, // 🔥 Captures full height
     },
     jsPDF: {
       unit: "in",
@@ -42,6 +42,8 @@ export const generatePDF = async (element: HTMLElement, filename: string): Promi
     },
   };
 
+  // 🔥 ChatGPT's stabilization delay
+  await new Promise((r) => setTimeout(r, 100));
   await html2pdf().set(opt).from(element).save();
 };
 
