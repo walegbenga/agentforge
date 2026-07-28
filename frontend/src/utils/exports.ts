@@ -20,7 +20,7 @@ export const hasCodeBlocks = (task: Task): boolean => {
   return task.subtasks.some((sub) => /```[\s\S]*?```/.test(sub.deliverable || ""));
 };
 
-// 3. Generate PDF from Element (✅ CORRECTED: Standard .save() chain)
+// 3. Generate PDF from Element (✅ SIMPLIFIED AND ROBUST)
 export const generatePDF = async (element: HTMLElement, filename: string): Promise<void> => {
   const opt = {
     margin: 0.5,
@@ -30,8 +30,9 @@ export const generatePDF = async (element: HTMLElement, filename: string): Promi
       scale: 2,
       useCORS: true,
       backgroundColor: "#ffffff",
-      scrollY: 0, // 🔥 CRITICAL: Prevents cutoff/blank captures
-      windowWidth: 800,
+      scrollY: 0,
+      windowWidth: element.scrollWidth, // 🔥 Use the element's actual width
+      windowHeight: element.scrollHeight, // 🔥 Use the element's actual height
       logging: false,
     },
     jsPDF: {
@@ -41,7 +42,6 @@ export const generatePDF = async (element: HTMLElement, filename: string): Promi
     },
   };
 
-  // ✅ THE STANDARD, RELIABLE CHAIN
   await html2pdf().set(opt).from(element).save();
 };
 

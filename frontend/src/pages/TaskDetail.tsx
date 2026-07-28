@@ -54,7 +54,7 @@ export default function TaskDetail() {
   const hasTxHashes = Object.keys(task.txHashes || {}).length > 0;
   const showCodeButton = hasCodeBlocks(task);
 
-  // ✅ BULLETPROOF EXPORT WITH ALL CRITICAL FIXES
+  // ✅ NUCLEAR OPTION: Manipulate the ORIGINAL element directly
   const handleExportPDF = async () => {
     const originalElement = document.getElementById("task-full-report");
     if (!originalElement) {
@@ -64,57 +64,51 @@ export default function TaskDetail() {
 
     console.log("📏 ORIGINAL HTML LENGTH:", originalElement.innerHTML.length);
 
-    // 1. Clone the element
-    const clone = originalElement.cloneNode(true) as HTMLElement;
-    
-    // 2. Inject forced light theme styles
-    const style = document.createElement("style");
-    style.innerHTML = `
-      * { color: #000000 !important; background-color: transparent !important; border-color: #e5e7eb !important; }
-      body { background-color: #ffffff !important; }
-      h1, h2, h3 { color: #111827 !important; }
-      code, pre { background-color: #f3f4f6 !important; color: #000000 !important; border: 1px solid #e5e7eb !important; padding: 8px !important; border-radius: 4px !important; }
-      hr { border-top: 1px solid #e5e7eb !important; }
-    `;
-    clone.prepend(style);
+    // 1. Save the original styles so we can revert them later
+    const originalStyles = {
+      position: originalElement.style.position,
+      left: originalElement.style.left,
+      top: originalElement.style.top,
+      opacity: originalElement.style.opacity,
+      pointerEvents: originalElement.style.pointerEvents,
+      zIndex: originalElement.style.zIndex,
+      width: originalElement.style.width,
+    };
 
-    // 3. Force visible layout (🔥 position: "absolute" is crucial for html2canvas)
-    clone.style.display = "block";
-    clone.style.position = "absolute"; 
-    clone.style.top = "0";
-    clone.style.left = "0";
-    clone.style.width = "800px";
-    clone.style.zIndex = "99999";
-    clone.style.backgroundColor = "#ffffff";
-    clone.style.color = "#000000"; // 🔥 Explicitly force black text on the root
-    clone.style.padding = "40px";
-    clone.style.visibility = "visible";
-    clone.style.opacity = "1";
-    clone.style.height = "auto";
-    clone.style.maxHeight = "none";
-    clone.style.overflow = "visible";
+    // 2. Force the ORIGINAL element to be visible and on top
+    originalElement.style.position = "fixed";
+    originalElement.style.left = "0";
+    originalElement.style.top = "0";
+    originalElement.style.width = "100vw";
+    originalElement.style.zIndex = "99999";
+    originalElement.style.opacity = "1";
+    originalElement.style.pointerEvents = "auto";
+    originalElement.style.backgroundColor = "#ffffff";
+    originalElement.style.color = "#000000";
+    originalElement.style.padding = "40px";
 
-    // 4. Append to body
-    document.body.appendChild(clone);
-
-    // 5. 🔥 CRITICAL: Force layout recalculation
-    clone.getBoundingClientRect();
-
-    // 6. 🔥 CRITICAL: Wait 1000ms for Markdown/Syntax Highlighter to fully paint
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // 3. Wait for the browser to paint the original element
+    await new Promise(resolve => setTimeout(resolve, 500));
     await document.fonts.ready;
-
-    console.log("📏 CLONE HTML LENGTH:", clone.innerHTML.length);
 
     try {
       const filename = getSafeFilename(task.description, "pdf");
-      await generatePDF(clone, filename);
+      await generatePDF(originalElement, filename);
     } catch (err) {
       console.error("PDF export failed", err);
       alert("Failed to generate PDF. Please try again.");
     } finally {
-      // 7. Clean up
-      document.body.removeChild(clone);
+      // 4. IMMEDIATELY revert the styles to hide it again
+      originalElement.style.position = originalStyles.position || "absolute";
+      originalElement.style.left = originalStyles.left || "-9999px";
+      originalElement.style.top = originalStyles.top || "0";
+      originalElement.style.opacity = originalStyles.opacity || "0";
+      originalElement.style.pointerEvents = originalStyles.pointerEvents || "none";
+      originalElement.style.zIndex = originalStyles.zIndex || "-9999";
+      originalElement.style.width = originalStyles.width || "800px";
+      originalElement.style.backgroundColor = "";
+      originalElement.style.color = "";
+      originalElement.style.padding = "";
     }
   };
 
@@ -213,7 +207,7 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      {/* ✅ HIDDEN CONTAINER: Kept in DOM but invisible, NO display: none */}
+      {/* ✅ HIDDEN CONTAINER: Completely hidden initially, rendered by React */}
       <div 
         id="task-full-report" 
         style={{ 
@@ -222,7 +216,8 @@ export default function TaskDetail() {
           top: "0", 
           width: "800px",
           opacity: 0,
-          pointerEvents: "none"
+          pointerEvents: "none",
+          zIndex: -9999
         }}
       >
         <h1 style={{ fontSize: "24px", marginBottom: "10px", color: "#111827" }}>{task.description}</h1>
