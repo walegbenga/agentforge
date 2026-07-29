@@ -81,7 +81,8 @@ async function start() {
   app.use("/api", apiRoutes);
 
   console.log("\n╔═══════════════════════════════╗");
-  console.log("║     AgentForge Backend        ║");
+  console.log("║        ForgeOps AI            ║");
+  console.log("║  Multi-Agent Automation       ║");
   console.log("╚═══════════════════════════════╝\n");
 
   server.listen(PORT, HOST, () => {

@@ -1,6 +1,7 @@
 {
-  "name": "@agentforge/frontend",
+  "name": "@forgeops/frontend",
   "version": "1.0.0",
+  "description": "ForgeOps AI - Multi-agent automation platform frontend",
   "private": true,
   "type": "module",
   "scripts": {

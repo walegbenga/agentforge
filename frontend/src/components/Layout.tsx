@@ -1,14 +1,21 @@
-import { Outlet, NavLink } from "react-router-dom";
-import { LayoutDashboard, Bot, Zap, Wallet } from "lucide-react"; // ✅ Added Wallet icon
-import { useMyStats } from "../hooks/useApi"; // ✅ Changed to useMyStats
-import { useAccount } from "wagmi"; // ✅ Added useAccount
+import { Outlet, NavLink, useLocation } from "react-router-dom";
+import { LayoutDashboard, Bot, Zap, Wallet, Menu, X } from "lucide-react";
+import { useMyStats } from "../hooks/useApi";
+import { useAccount } from "wagmi";
 import WalletButton from "./wallet/WalletButton";
 import { useState, useEffect } from "react";
 
 export default function Layout() {
-  const { isConnected } = useAccount(); // ✅ Check if wallet is connected
-  const { stats: myStats } = useMyStats(); // ✅ Get user-specific stats
+  const { isConnected } = useAccount();
+  const { stats: myStats } = useMyStats();
   const [wsConnected, setWsConnected] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const location = useLocation();
+
+  // Close sidebar when route changes on mobile
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     const wsUrl = import.meta.env.VITE_WS_URL || "ws://localhost:3001/ws";
@@ -20,9 +27,18 @@ export default function Layout() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", position: "relative", zIndex: 1 }}>
+      {/* Mobile Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="mobile-only"
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 45, backdropFilter: "blur(2px)" }}
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside style={{
-        width: 220,
+      <aside className="sidebar" style={{
+        width: 240,
         background: "var(--bg-panel)",
         borderRight: "1px solid var(--border)",
         display: "flex",
@@ -30,9 +46,11 @@ export default function Layout() {
         position: "fixed",
         top: 0, left: 0, bottom: 0,
         zIndex: 50,
+        transform: isSidebarOpen ? "translateX(0)" : "translateX(-100%)",
+        transition: "transform 0.3s ease",
       }}>
         {/* Logo */}
-        <div style={{ padding: "24px 20px 20px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ padding: "24px 20px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{
               width: 32, height: 32,
@@ -45,13 +63,17 @@ export default function Layout() {
             </div>
             <div>
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "1rem", color: "var(--text-primary)", letterSpacing: "-0.02em" }}>
-                AgentForge
+                ForgeOps AI
               </div>
               <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                Arc Testnet
+                Multi-Agent Automation
               </div>
             </div>
           </div>
+          {/* Mobile close button */}
+          <button onClick={() => setIsSidebarOpen(false)} className="mobile-only" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+            <X size={20} />
+          </button>
         </div>
 
         {/* Nav */}
@@ -62,8 +84,6 @@ export default function Layout() {
 
         {/* Stats footer */}
         <div style={{ padding: "16px", borderTop: "1px solid var(--border)" }}>
-          
-          {/* ✅ Show personal stats if connected, otherwise show connect prompt */}
           {isConnected && myStats ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
               <StatRow label="My Agents" value={myStats.agents} />
@@ -77,7 +97,6 @@ export default function Layout() {
             </div>
           )}
 
-          {/* WebSocket Status */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{
               width: 6, height: 6, borderRadius: "50%",
@@ -92,24 +111,29 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <div style={{ marginLeft: 220, flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      <div className="main-content" style={{ marginLeft: 240, flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         {/* Top header with wallet */}
         <header style={{
           height: 60,
           borderBottom: "1px solid var(--border)",
           display: "flex",
           alignItems: "center",
-          justifyContent: "flex-end",
-          padding: "0 32px",
+          justifyContent: "space-between",
+          padding: "0 24px",
           background: "var(--bg-panel)",
           position: "sticky",
           top: 0,
           zIndex: 40,
         }}>
+          {/* Mobile Menu Button */}
+          <button onClick={() => setIsSidebarOpen(true)} className="mobile-only" style={{ background: "none", border: "none", color: "var(--text-primary)", cursor: "pointer", display: "flex", alignItems: "center" }}>
+            <Menu size={20} />
+          </button>
+
           <WalletButton />
         </header>
 
-        {/* Page content */}
+        {/* Page content (This is where path="/" renders) */}
         <main style={{ flex: 1, padding: "32px" }}>
           <Outlet />
         </main>
