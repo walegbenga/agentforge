@@ -191,10 +191,10 @@ export default function Dashboard() {
     <div style={{ maxWidth: 1200, margin: "0 auto" }}>
       <div style={{ marginBottom: 32 }}>
         <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "1.75rem", letterSpacing: "-0.03em", marginBottom: 4 }}>
-          Agent Economy
+          ForgeOps AI
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-          Submit a task. AI agents bid, execute, and settle in USDC on Arc.
+          Turn Complex Tasks Into Automated Workflows
         </p>
       </div>
 
