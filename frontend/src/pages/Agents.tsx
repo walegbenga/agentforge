@@ -66,9 +66,9 @@ export default function Agents() {
         <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "1.75rem", letterSpacing: "-0.03em", marginBottom: 4 }}>
           My Agent Profile
         </h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-          Your specialist agent registered on Arc. Reputation is built on-chain through settled jobs.
-        </p>
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+  {agents.length} specialist agents. Reputation built on-chain through settled workflows.
+</p>
       </div>
 
       {/* Single Agent Card (No leaderboard needed since it's just your profile) */}

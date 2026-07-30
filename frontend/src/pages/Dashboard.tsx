@@ -1,380 +1,366 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Send, Wallet, TrendingUp, Clock, CheckCircle, DollarSign, ShieldCheck, Loader, Bot, Briefcase } from "lucide-react";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useTasks, useMyStats, useWebSocket } from "../hooks/useApi"; // ✅ Changed to useMyStats
-import TaskCard from "../components/dashboard/TaskCard";
-import LiveFeed from "../components/dashboard/LiveFeed";
-import { arcTestnet, CONTRACTS, USDC_ABI } from "../config/wagmi";
-import type { WSEvent, Task } from "../types";
-
-const ESCROW_ADDRESS = (
-  import.meta.env.VITE_ESCROW_ADDRESS || "0x4ca8EdA765c2d768d0b0FDe277bf2b973989246c"
-) as `0x${string}`;
-
-const EXAMPLE_TASKS = [
-  "Research the top 5 DeFi protocols on Arc blockchain and write a comprehensive comparison report including TVL, unique features, and risks",
-  "Analyze the current USDC market cap trends and write a summary with key insights for a crypto investor newsletter",
-  "Review this Solidity smart contract for security vulnerabilities and suggest improvements",
-  "Create a detailed business plan outline for a UAE-based stablecoin remittance startup targeting expat workers",
-];
-
-type SubmitStep =
-  | "idle"
-  | "checking"
-  | "approving"
-  | "waiting-approval"
-  | "approval-confirmed"
-  | "creating-task"
-  | "done"
-  | "error";
-
-const STEP_LABELS: Record<SubmitStep, string> = {
-  idle: "Launch Task",
-  checking: "Checking allowance...",
-  approving: "Check MetaMask...",
-  "waiting-approval": "Confirming approval...",
-  "approval-confirmed": "Creating task...",
-  "creating-task": "Deploying agents...",
-  done: "Done!",
-  error: "Try Again",
-};
+import { useAccount } from "wagmi";
+import { Plus, ExternalLink, Clock, CheckCircle, XCircle, Zap, Wallet, AlertCircle } from "lucide-react";
+import { useTasks, useCreateTask, useWebSocket } from "../hooks/useApi";
+import type { WSEvent } from "../types";
+import { useCallback } from "react";
 
 export default function Dashboard() {
+  const { address, isConnected } = useAccount();
+  const { tasks, refresh } = useTasks(address);
+  const createTask = useCreateTask();
   const navigate = useNavigate();
-  const { address, isConnected, chainId } = useAccount();
-  const { tasks, createTask, updateTask } = useTasks();
-  
-  // ✅ USE THE SERVER-SIDE HOOK FOR 100% ACCURATE USER STATS
-  const { stats: myStats, loading: statsLoading } = useMyStats(); 
 
   const [description, setDescription] = useState("");
-  const [budget, setBudget] = useState(5_000_000);
-  const [step, setStep] = useState<SubmitStep>("idle");
+  const [budget, setBudget] = useState(5);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [liveEvents, setLiveEvents] = useState<Array<WSEvent & { id: string }>>([]);
-
-  const { data: allowance, refetch: refetchAllowance } = useReadContract({
-    address: CONTRACTS.USDC,
-    abi: USDC_ABI,
-    functionName: "allowance",
-    args: address ? [address, ESCROW_ADDRESS] : undefined,
-    query: { 
-      enabled: !!address,
-      refetchInterval: 30000,
-      staleTime: 20000,
-    },
-  });
-
-  const { data: usdcBalance } = useReadContract({
-    address: CONTRACTS.USDC,
-    abi: USDC_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { 
-      enabled: !!address,
-      refetchInterval: 30000,
-      staleTime: 20000,
-    },
-  });
-
-  const {
-    writeContract: approveUSDC,
-    data: approveTxHash,
-    error: approveError,
-  } = useWriteContract();
-
-  const { isSuccess: approvalConfirmed } = useWaitForTransactionReceipt({
-    hash: approveTxHash,
-    query: { enabled: !!approveTxHash },
-  });
-
-  useEffect(() => {
-    if (approvalConfirmed && step === "waiting-approval") {
-      setStep("approval-confirmed");
-      refetchAllowance();
-      submitTask();
-    }
-  }, [approvalConfirmed]);
-
-  useEffect(() => {
-    if (approveError) {
-      setError(
-        approveError.message.includes("User rejected")
-          ? "Transaction rejected in wallet"
-          : approveError.message
-      );
-      setStep("error");
-    }
-  }, [approveError]);
 
   useWebSocket(
-    useCallback((event: WSEvent) => {
-      if (event.type === "connected") return;
-      setLiveEvents((prev) => [
-        { ...event, id: `${Date.now()}-${Math.random()}` },
-        ...prev.slice(0, 49),
-      ]);
-      if (event.type === "task:updated") {
-        const payload = event.payload as Partial<Task>;
-        updateTask({ id: event.taskId, ...payload } as Task);
-      }
-    }, [updateTask])
+    useCallback(
+      (event: WSEvent) => {
+        if (!address) return;
+        if (event.type === "task:created" || event.type === "task:updated") {
+          refresh();
+        }
+      },
+      [address, refresh]
+    )
   );
 
-  const handleSubmit = async () => {
-    if (!description.trim() || !address) return;
-    setError("");
-
-    const balance = usdcBalance ? BigInt(usdcBalance as bigint) : BigInt(0);
-    if (balance < BigInt(budget)) {
-      setError(
-        `Insufficient USDC. You have $${(Number(balance) / 1_000_000).toFixed(2)}, need $${(budget / 1_000_000).toFixed(2)}`
-      );
-      setStep("error");
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isConnected || !address) {
+      setError("Connect your wallet to submit a task");
+      return;
+    }
+    if (!description.trim()) {
+      setError("Please describe your task");
+      return;
+    }
+    if (budget < 1) {
+      setError("Minimum budget is 1 USDC");
       return;
     }
 
-    setStep("checking");
-    const currentAllowance = allowance ? BigInt(allowance as bigint) : BigInt(0);
+    setSubmitting(true);
+    setError("");
 
-    if (currentAllowance >= BigInt(budget)) {
-      setStep("creating-task");
-      await submitTask();
-    } else {
-      setStep("approving");
-      approveUSDC({
-        address: CONTRACTS.USDC,
-        abi: USDC_ABI,
-        functionName: "approve",
-        args: [ESCROW_ADDRESS, BigInt(budget)],
-        chainId: arcTestnet.id,
-      });
-      setStep("waiting-approval");
-    }
-  };
-
-  const submitTask = async () => {
-    if (!address || !description.trim()) return;
-    setStep("creating-task");
     try {
-      const task = await createTask({
+      const result = await createTask({
         description: description.trim(),
-        budget,
-        requesterAddress: address,
+        budget: Math.floor(budget * 1_000_000),
       });
-      setStep("done");
-      setDescription("");
-      navigate(`/tasks/${task.id}`);
+      navigate(`/tasks/${result.id}`);
     } catch (err: any) {
-      setError(err.message);
-      setStep("error");
+      setError(err.message || "Failed to create task");
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const budgetUSDC = (budget / 1_000_000).toFixed(2);
-  const balanceUSDC = usdcBalance
-    ? (Number(usdcBalance as bigint) / 1_000_000).toFixed(2)
-    : "0.00";
-  const allowanceUSDC = allowance
-    ? (Number(allowance as bigint) / 1_000_000).toFixed(2)
-    : "0.00";
-  const isAlreadyApproved =
-    allowance !== undefined && BigInt(allowance as bigint) >= BigInt(budget);
-  const isSubmitting = [
-    "checking", "approving", "waiting-approval", "approval-confirmed", "creating-task",
-  ].includes(step);
-  const isWrongNetwork = isConnected && chainId !== arcTestnet.id;
+  const recentTasks = tasks.slice(0, 8);
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      {/* Hero */}
       <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "1.75rem", letterSpacing: "-0.03em", marginBottom: 4 }}>
-          ForgeOps AI
+        <h1
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 800,
+            fontSize: "1.8rem",
+            letterSpacing: "-0.03em",
+            marginBottom: 6,
+          }}
+        >
+          {/* ✅ REBRANDED */}
+          Welcome to ForgeOps AI
         </h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-          Turn Complex Tasks Into Automated Workflows
+        {/* ✅ REBRANDED */}
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
+          Multi-agent automation platform. Submit a task, let specialized AI agents collaborate, and get real results.
         </p>
       </div>
 
-      {/* ✅ RENDER SERVER-SIDE STATS (100% ACCURATE) */}
-      {isConnected && myStats && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
-          <StatCard icon={<Bot size={16} />} label="My Agents" value={myStats.agents} color="arc" />
-          <StatCard icon={<CheckCircle size={16} />} label="My Completed Tasks" value={myStats.completedTasks} color="green" />
-          <StatCard icon={<DollarSign size={16} />} label="My Total Volume" value={`$${(myStats.totalVolume / 1_000_000).toFixed(2)}`} color="usdc" />
-          <StatCard icon={<Briefcase size={16} />} label="My Jobs Done" value={myStats.jobsCompleted} color="yellow" />
-        </div>
-      )}
+      {/* Stats — ✅ ADDED responsive class */}
+      <div
+        className="stats-grid"
+        style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}
+      >
+        <StatCard
+          label="Total Tasks"
+          value={tasks.length}
+          icon={<Clock size={16} />}
+          color="var(--arc)"
+        />
+        <StatCard
+          label="Completed"
+          value={tasks.filter((t) => t.status === "completed").length}
+          icon={<CheckCircle size={16} />}
+          color="var(--green)"
+        />
+        <StatCard
+          label="In Progress"
+          value={tasks.filter((t) => !["completed", "failed", "cancelled"].includes(t.status)).length}
+          icon={<Zap size={16} />}
+          color="var(--yellow)"
+        />
+        <StatCard
+          label="Total Volume"
+          value={`$${(tasks.reduce((s, t) => s + t.totalBudget, 0) / 1_000_000).toFixed(2)}`}
+          icon={<Wallet size={16} />}
+          color="var(--usdc)"
+        />
+      </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 20 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div className="card">
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: 4, color: "var(--arc)" }}>
-                ⚡ Submit Task
-              </div>
-              <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                Orchestrator decomposes your task, recruits specialist agents, settles payments on-chain.
-              </p>
+      {/* ✅ ADDED responsive class */}
+      <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 24 }}>
+        {/* Recent Tasks */}
+        <div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 14,
+            }}
+          >
+            <h2
+              style={{
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                color: "var(--text-primary)",
+              }}
+            >
+              Recent Tasks
+            </h2>
+            {tasks.length > 8 && (
+              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                Showing 8 of {tasks.length}
+              </span>
+            )}
+          </div>
+
+          {recentTasks.length === 0 ? (
+            <div
+              className="card"
+              style={{
+                textAlign: "center",
+                padding: 48,
+                color: "var(--text-muted)",
+                fontSize: "0.85rem",
+              }}
+            >
+              <div style={{ fontSize: "2rem", marginBottom: 12 }}>📋</div>
+              <div>No tasks yet. Submit your first task →</div>
             </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {recentTasks.map((task) => (
+                <TaskRow key={task.id} task={task} onClick={() => navigate(`/tasks/${task.id}`)} />
+              ))}
+            </div>
+          )}
+        </div>
 
-            {!isConnected ? (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "32px 20px", background: "var(--bg)", borderRadius: "var(--radius)", border: "1px dashed var(--border-bright)" }}>
-                <Wallet size={32} color="var(--text-muted)" />
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontWeight: 600, marginBottom: 6, fontSize: "0.9rem" }}>Connect your wallet to submit tasks</div>
-                  <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>You need a wallet on Arc Testnet with USDC to pay agents</div>
-                </div>
-                <ConnectButton />
+        {/* Create Task Form */}
+        <div>
+          <div
+            style={{
+              fontWeight: 700,
+              fontSize: "0.95rem",
+              color: "var(--text-primary)",
+              marginBottom: 14,
+            }}
+          >
+            Submit New Task
+          </div>
+          <div className="card" style={{ padding: 20 }}>
+            <form onSubmit={handleSubmit}>
+              <div style={{ marginBottom: 16 }}>
+                <label>Task Description</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="e.g., Analyze the top 10 DeFi protocols and write a 500-word research report..."
+                  disabled={submitting}
+                  style={{ fontSize: "0.85rem" }}
+                />
               </div>
-            ) : isWrongNetwork ? (
-              <div style={{ padding: "20px", background: "var(--yellow-dim)", border: "1px solid rgba(245,200,66,0.3)", borderRadius: "var(--radius)", textAlign: "center", color: "var(--yellow)", fontSize: "0.85rem" }}>
-                Please switch to Arc Testnet in your wallet
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                  <WalletInfo label="Address" value={`${address?.slice(0, 6)}...${address?.slice(-4)}`} />
-                  <WalletInfo label="USDC Balance" value={`$${balanceUSDC}`} highlight />
-                  <WalletInfo label="Approved" value={`$${allowanceUSDC}`} />
-                </div>
 
-                <div>
-                  <label>Task Description</label>
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Describe what you need done..."
-                    style={{ minHeight: 100 }}
-                    disabled={isSubmitting}
+              <div style={{ marginBottom: 16 }}>
+                <label>Budget (USDC)</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <input
+                    type="range"
+                    min="1"
+                    max="50"
+                    step="1"
+                    value={budget}
+                    onChange={(e) => setBudget(Number(e.target.value))}
+                    disabled={submitting}
+                    style={{ flex: 1 }}
                   />
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                    {EXAMPLE_TASKS.map((ex, i) => (
-                      <button key={i} className="btn btn-ghost" style={{ fontSize: "0.7rem", padding: "4px 10px" }} onClick={() => setDescription(ex)} disabled={isSubmitting}>
-                        Example {i + 1}
-                      </button>
-                    ))}
-                  </div>
+                  <span
+                    className="badge badge-usdc"
+                    style={{ fontSize: "0.85rem", padding: "6px 12px", minWidth: 70, textAlign: "center" }}
+                  >
+                    ${budget}
+                  </span>
                 </div>
-
-                <div>
-                  <label>Budget — <span style={{ color: "var(--arc)", fontFamily: "var(--font-mono)" }}>{budgetUSDC} USDC</span></label>
-                  <input type="range" min={1_000_000} max={50_000_000} step={500_000} value={budget} onChange={(e) => setBudget(Number(e.target.value))} disabled={isSubmitting} />
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-                    <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>$1 USDC</span>
-                    <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>$50 USDC</span>
-                  </div>
+                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: 6, fontFamily: "var(--font-mono)" }}>
+                  Funds locked in escrow • Settled on Arc testnet
                 </div>
+              </div>
 
-                {isSubmitting && (
-                  <div style={{ padding: "12px 14px", background: "var(--arc-dim)", border: "1px solid rgba(0,212,255,0.2)", borderRadius: "var(--radius)", fontSize: "0.8rem", color: "var(--arc)", display: "flex", alignItems: "center", gap: 8 }}>
-                    <Loader size={14} style={{ animation: "spin 1s linear infinite" }} />
-                    {step === "checking" && "Checking your USDC allowance..."}
-                    {step === "approving" && "Please confirm approval in MetaMask..."}
-                    {step === "waiting-approval" && "Waiting for USDC approval on Arc..."}
-                    {step === "approval-confirmed" && "USDC approved! Creating task on-chain..."}
-                    {step === "creating-task" && "Task submitted! Deploying agents..."}
-                  </div>
-                )}
-
-                {approveTxHash && (
-                  <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                    Approval tx:{" "}
-                    <a href={`https://explorer.testnet.arc.network/tx/${approveTxHash}`} target="_blank" rel="noopener noreferrer" style={{ color: "var(--arc)", textDecoration: "none", fontFamily: "var(--font-mono)" }}>
-                      {String(approveTxHash).slice(0, 16)}...
-                    </a>
-                  </div>
-                )}
-
-                {error && (
-                  <div style={{ padding: "10px 14px", background: "var(--red-dim)", border: "1px solid rgba(255,77,106,0.3)", borderRadius: "var(--radius)", color: "var(--red)", fontSize: "0.8rem" }}>
-                    {error}
-                  </div>
-                )}
-
-                {!isAlreadyApproved && !isSubmitting && (
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", background: "var(--bg)", borderRadius: "var(--radius)", border: "1px solid var(--border)", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                    <ShieldCheck size={14} color="var(--arc)" style={{ flexShrink: 0, marginTop: 1 }} />
-                    Clicking launch will first ask you to approve <strong style={{ color: "var(--arc)" }}>${budgetUSDC} USDC</strong> for the escrow contract, then create your task on Arc.
-                  </div>
-                )}
-
-                <button
-                  className="btn btn-primary"
-                  onClick={handleSubmit}
-                  disabled={!description.trim() || isSubmitting}
-                  style={{ alignSelf: "flex-start" }}
+              {error && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "8px 12px",
+                    background: "var(--red-dim)",
+                    border: "1px solid rgba(255,77,106,0.2)",
+                    borderRadius: "var(--radius)",
+                    color: "var(--red)",
+                    fontSize: "0.75rem",
+                    marginBottom: 12,
+                  }}
                 >
-                  {isSubmitting ? (
-                    <><Loader size={14} style={{ animation: "spin 1s linear infinite" }} /> {STEP_LABELS[step]}</>
-                  ) : isAlreadyApproved ? (
-                    <><Send size={14} /> Launch Task</>
-                  ) : (
-                    <><ShieldCheck size={14} /> Approve & Launch Task</>
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
+                  <AlertCircle size={14} />
+                  {error}
+                </div>
+              )}
 
-          {/* ✅ Recent tasks: STRICTLY HIDDEN IF NOT CONNECTED */}
-          <div>
-            <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
-              Your Recent Tasks
-            </div>
-            {!isConnected ? (
-              <div className="card" style={{ textAlign: "center", padding: 40, color: "var(--text-muted)", fontSize: "0.8rem", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                <Wallet size={28} style={{ opacity: 0.5 }} />
-                <div>Connect your wallet to view your tasks</div>
-              </div>
-            ) : tasks.length === 0 ? (
-              <div className="card" style={{ textAlign: "center", padding: 40, color: "var(--text-muted)", fontSize: "0.8rem" }}>
-                No tasks yet. Submit your first task above.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {tasks.slice(0, 8).map((task) => (
-                  <TaskCard key={task.id} task={task} onClick={() => navigate(`/tasks/${task.id}`)} />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+              {!isConnected ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "10px 14px",
+                    background: "var(--yellow-dim)",
+                    border: "1px solid rgba(245,200,66,0.2)",
+                    borderRadius: "var(--radius)",
+                    color: "var(--yellow)",
+                    fontSize: "0.75rem",
+                    marginBottom: 12,
+                  }}
+                >
+                  <Wallet size={14} />
+                  Connect wallet to submit tasks
+                </div>
+              ) : null}
 
-        {/* Live feed */}
-        <div>
-          <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
-            Live Feed
+              <button
+                type="submit"
+                className="btn btn-primary btn-full-mobile"
+                disabled={submitting || !isConnected}
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                {submitting ? (
+                  <>
+                    <span className="animate-spin">⟳</span> Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Plus size={16} /> Submit Task
+                  </>
+                )}
+              </button>
+            </form>
           </div>
-          <LiveFeed events={liveEvents} />
         </div>
       </div>
     </div>
   );
 }
 
-function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: any; color: string }) {
-  const colorMap: Record<string, string> = { arc: "var(--arc)", green: "var(--green)", usdc: "#5aabff", yellow: "var(--yellow)" };
+function StatCard({ label, value, icon, color }: { label: string; value: any; icon: React.ReactNode; color: string }) {
   return (
-    <div className="card" style={{ padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
-          <div style={{ fontSize: "1.4rem", fontWeight: 800, color: colorMap[color], fontFamily: "var(--font-mono)" }}>{value}</div>
+    <div className="card" style={{ padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            background: `${color}20`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color,
+          }}
+        >
+          {icon}
         </div>
-        <div style={{ color: colorMap[color], opacity: 0.7 }}>{icon}</div>
+        <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          {label}
+        </span>
       </div>
+      <div style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "1.4rem", color }}>{value}</div>
     </div>
   );
 }
 
-function WalletInfo({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function TaskRow({ task, onClick }: { task: any; onClick: () => void }) {
+  const statusConfig: Record<string, { badge: string; icon: React.ReactNode; label: string }> = {
+    pending: { badge: "badge-muted", icon: <Clock size={10} />, label: "Pending" },
+    decomposing: { badge: "badge-yellow", icon: <Zap size={10} />, label: "Decomposing" },
+    assigning: { badge: "badge-arc", icon: <Zap size={10} />, label: "Assigning" },
+    executing: { badge: "badge-arc", icon: <Zap size={10} />, label: "Executing" },
+    evaluating: { badge: "badge-yellow", icon: <Clock size={10} />, label: "Evaluating" },
+    completed: { badge: "badge-green", icon: <CheckCircle size={10} />, label: "Completed" },
+    failed: { badge: "badge-red", icon: <XCircle size={10} />, label: "Failed" },
+    cancelled: { badge: "badge-muted", icon: <XCircle size={10} />, label: "Cancelled" },
+  };
+
+  const cfg = statusConfig[task.status] || statusConfig.pending;
+  const isActive = ["decomposing", "assigning", "executing", "evaluating"].includes(task.status);
+
   return (
-    <div style={{ padding: "8px 10px", background: "var(--bg)", borderRadius: "var(--radius)", border: `1px solid ${highlight ? "rgba(0,212,255,0.2)" : "var(--border)"}` }}>
-      <div style={{ fontSize: "0.62rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: "0.78rem", fontFamily: "var(--font-mono)", fontWeight: 700, color: highlight ? "var(--arc)" : "var(--text-secondary)" }}>{value}</div>
+    <div
+      className="card animate-fade-in"
+      onClick={onClick}
+      style={{
+        padding: "12px 16px",
+        cursor: "pointer",
+        borderColor: isActive ? "var(--arc)" : "var(--border)",
+        transition: "all 0.15s",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span className={`badge ${cfg.badge}`}>
+              {isActive && <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>}
+              {cfg.icon}
+              {cfg.label}
+            </span>
+            <span className="badge badge-usdc" style={{ fontSize: "0.65rem" }}>
+              ${(task.totalBudget / 1_000_000).toFixed(2)}
+            </span>
+          </div>
+          <p
+            style={{
+              fontSize: "0.8rem",
+              color: "var(--text-secondary)",
+              lineHeight: 1.4,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+            }}
+          >
+            {task.description}
+          </p>
+        </div>
+        <ExternalLink size={14} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 4 }} />
+      </div>
     </div>
   );
 }
