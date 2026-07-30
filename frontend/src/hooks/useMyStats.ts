@@ -23,7 +23,9 @@ export function useMyStats() {
       const completedTasks = tasks.filter((t: any) => t.status === "completed").length;
       const totalVolume = tasks.reduce((s: number, t: any) => s + t.totalBudget, 0);
       setStats({ completedTasks, totalVolume, totalTasks: tasks.length });
-    } catch {}
+    } catch (err) {
+      console.error("Failed to load stats", err);
+    }
   }, [address]);
 
   useEffect(() => {
