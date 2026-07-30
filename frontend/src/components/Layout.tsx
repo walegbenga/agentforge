@@ -1,6 +1,6 @@
 import { Outlet, NavLink } from "react-router-dom";
 import { LayoutDashboard, Bot, Zap, Wallet } from "lucide-react";
-import { useMyStats } from "../hooks/useMyStats";
+import { useMyStats } from "../hooks/usemystats";
 import { useAccount } from "wagmi";
 import WalletButton from "./wallet/WalletButton";
 import { useState, useEffect } from "react";
