@@ -2,14 +2,14 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { Plus, ExternalLink, Clock, CheckCircle, XCircle, Zap, Wallet, AlertCircle } from "lucide-react";
-import { useTasks, useCreateTask, useWebSocket } from "../hooks/useApi";
+import { useTasks, useWebSocket } from "../hooks/useApi";
 import type { WSEvent } from "../types";
 import { useCallback } from "react";
 
 export default function Dashboard() {
   const { address, isConnected } = useAccount();
-  const { tasks, refresh } = useTasks(address);
-  const createTask = useCreateTask();
+  const { tasks, createTask, refresh } = useTasks(address);
+  //const createTask = useCreateTask();
   const navigate = useNavigate();
 
   const [description, setDescription] = useState("");
