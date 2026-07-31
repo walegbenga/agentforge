@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAccount } from "wagmi";
-import { Plus, ExternalLink, Clock, CheckCircle, XCircle, Zap, Wallet, AlertCircle } from "lucide-react";
+import { Plus, ChevronRight, Clock, CheckCircle, XCircle, Zap, Wallet, AlertCircle, FileClock } from "lucide-react";
 import { useTasks, useWebSocket } from "../hooks/useApi";
 import type { WSEvent } from "../types";
 import { useCallback } from "react";
@@ -84,11 +84,8 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Stats — ✅ ADDED responsive class */}
-      <div
-        className="stats-grid"
-        style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}
-      >
+      {/* Stats */}
+      <div className="stats-grid" style={{ marginBottom: 32 }}>
         <StatCard
           label="Total Tasks"
           value={tasks.length}
@@ -115,8 +112,7 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* ✅ ADDED responsive class */}
-      <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 24 }}>
+      <div className="dashboard-grid">
         {/* Recent Tasks */}
         <div>
           <div
@@ -153,8 +149,8 @@ export default function Dashboard() {
                 fontSize: "0.85rem",
               }}
             >
-              <div style={{ fontSize: "2rem", marginBottom: 12 }}>📋</div>
-              <div>No tasks yet. Submit your first task →</div>
+              <FileClock size={32} color="var(--text-muted)" style={{ opacity: 0.6, marginBottom: 12 }} />
+              <div>No tasks yet. Submit your first task to get started.</div>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -178,100 +174,97 @@ export default function Dashboard() {
             Submit New Task
           </div>
           <div className="card" style={{ padding: 20 }}>
-            <form onSubmit={handleSubmit}>
-              <div style={{ marginBottom: 16 }}>
-                <label>Task Description</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="e.g., Analyze the top 10 DeFi protocols and write a 500-word research report..."
-                  disabled={submitting}
-                  style={{ fontSize: "0.85rem" }}
-                />
+            {!isConnected ? (
+              // Wallet-gate up front: explain what's needed before the user
+              // invests effort filling out a form they can't submit.
+              <div style={{ textAlign: "center", padding: "24px 8px" }}>
+                <Wallet size={28} color="var(--text-muted)" style={{ opacity: 0.6, marginBottom: 10 }} />
+                <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: 4 }}>
+                  Connect your wallet to submit a task
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Task budgets are locked in USDC escrow on Arc testnet.
+                </div>
               </div>
-
-              <div style={{ marginBottom: 16 }}>
-                <label>Budget (USDC)</label>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <input
-                    type="range"
-                    min="1"
-                    max="50"
-                    step="1"
-                    value={budget}
-                    onChange={(e) => setBudget(Number(e.target.value))}
+            ) : (
+              <form onSubmit={handleSubmit}>
+                <div style={{ marginBottom: 16 }}>
+                  <label htmlFor="task-description">Task Description</label>
+                  <textarea
+                    id="task-description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="e.g., Analyze the top 10 DeFi protocols and write a 500-word research report..."
                     disabled={submitting}
-                    style={{ flex: 1 }}
+                    style={{ fontSize: "0.85rem" }}
                   />
-                  <span
-                    className="badge badge-usdc"
-                    style={{ fontSize: "0.85rem", padding: "6px 12px", minWidth: 70, textAlign: "center" }}
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label htmlFor="task-budget">Budget (USDC)</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <input
+                      id="task-budget"
+                      type="range"
+                      min="1"
+                      max="50"
+                      step="1"
+                      value={budget}
+                      onChange={(e) => setBudget(Number(e.target.value))}
+                      disabled={submitting}
+                      style={{ flex: 1 }}
+                    />
+                    <span
+                      className="badge badge-usdc"
+                      style={{ fontSize: "0.85rem", padding: "6px 12px", minWidth: 70, textAlign: "center" }}
+                    >
+                      ${budget}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 6, fontFamily: "var(--font-mono)" }}>
+                    Funds locked in escrow • Settled on Arc testnet
+                  </div>
+                </div>
+
+                {error && (
+                  <div
+                    role="alert"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "8px 12px",
+                      background: "var(--red-dim)",
+                      border: "1px solid rgba(255,77,106,0.2)",
+                      borderRadius: "var(--radius)",
+                      color: "var(--red)",
+                      fontSize: "0.78rem",
+                      marginBottom: 12,
+                    }}
                   >
-                    ${budget}
-                  </span>
-                </div>
-                <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginTop: 6, fontFamily: "var(--font-mono)" }}>
-                  Funds locked in escrow • Settled on Arc testnet
-                </div>
-              </div>
-
-              {error && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "8px 12px",
-                    background: "var(--red-dim)",
-                    border: "1px solid rgba(255,77,106,0.2)",
-                    borderRadius: "var(--radius)",
-                    color: "var(--red)",
-                    fontSize: "0.75rem",
-                    marginBottom: 12,
-                  }}
-                >
-                  <AlertCircle size={14} />
-                  {error}
-                </div>
-              )}
-
-              {!isConnected ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "10px 14px",
-                    background: "var(--yellow-dim)",
-                    border: "1px solid rgba(245,200,66,0.2)",
-                    borderRadius: "var(--radius)",
-                    color: "var(--yellow)",
-                    fontSize: "0.75rem",
-                    marginBottom: 12,
-                  }}
-                >
-                  <Wallet size={14} />
-                  Connect wallet to submit tasks
-                </div>
-              ) : null}
-
-              <button
-                type="submit"
-                className="btn btn-primary btn-full-mobile"
-                disabled={submitting || !isConnected}
-                style={{ width: "100%", justifyContent: "center" }}
-              >
-                {submitting ? (
-                  <>
-                    <span className="animate-spin">⟳</span> Submitting...
-                  </>
-                ) : (
-                  <>
-                    <Plus size={16} /> Submit Task
-                  </>
+                    <AlertCircle size={14} />
+                    {error}
+                  </div>
                 )}
-              </button>
-            </form>
+
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-full-mobile"
+                  disabled={submitting}
+                  style={{ width: "100%", justifyContent: "center" }}
+                >
+                  {submitting ? (
+                    <>
+                      <span className="animate-spin">⟳</span> Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={16} /> Submit Task
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       </div>
@@ -325,6 +318,15 @@ function TaskRow({ task, onClick }: { task: any; onClick: () => void }) {
     <div
       className="card animate-fade-in"
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      aria-label={`View task: ${task.description}`}
       style={{
         padding: "12px 16px",
         cursor: "pointer",
@@ -359,7 +361,7 @@ function TaskRow({ task, onClick }: { task: any; onClick: () => void }) {
             {task.description}
           </p>
         </div>
-        <ExternalLink size={14} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 4 }} />
+        <ChevronRight size={16} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 4 }} aria-hidden="true" />
       </div>
     </div>
   );

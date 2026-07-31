@@ -67,8 +67,8 @@ export default function Agents() {
           My Agent Profile
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-  {agents.length} specialist agents. Reputation built on-chain through settled workflows.
-</p>
+          Reputation built on-chain through settled workflows.
+        </p>
       </div>
 
       {/* Single Agent Card (No leaderboard needed since it's just your profile) */}
@@ -82,13 +82,9 @@ export default function Agents() {
 function AgentRow({ agent, rank }: { agent: AgentProfile; rank: number }) {
   return (
     <div
-      className="card animate-fade-in"
+      className="card animate-fade-in agent-row"
       style={{
         padding: "14px 16px",
-        display: "grid",
-        gridTemplateColumns: "32px 1fr 100px 90px 120px 100px",
-        gap: 12,
-        alignItems: "center",
         borderColor: "rgba(0,212,255,0.25)",
       }}
     >

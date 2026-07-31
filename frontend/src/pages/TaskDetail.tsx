@@ -91,7 +91,7 @@ export default function TaskDetail() {
         </div>
 
         {/* Stats — uses responsive class */}
-        <div className="stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        <div className="stats-grid" style={{ gap: 12 }}>
           <MiniStat label="Budget" value={`$${budgetUSDC}`} color="var(--arc)" />
           <MiniStat label="Allocated" value={`$${allocatedUSDC}`} color="var(--yellow)" />
           <MiniStat label="Subtasks" value={`${settledCount}/${task.subtasks.length}`} color="var(--text-secondary)" />
@@ -131,7 +131,7 @@ export default function TaskDetail() {
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {Object.entries(task.txHashes).map(([label, hash]) => (
-                <a key={label} href={`${ARC_EXPLORER}/tx/${hash}`} target="_blank" rel="noopener noreferrer" className="badge badge-muted" style={{ textDecoration: "none", cursor: "pointer" }}>
+                <a key={label} href={`${ARC_EXPLORER}/tx/${hash}`} target="_blank" rel="noopener noreferrer" className="badge badge-muted" aria-label={`View ${label} transaction on Arc Explorer (opens in new tab)`} style={{ textDecoration: "none", cursor: "pointer" }}>
                   {label} <ExternalLink size={9} />
                 </a>
               ))}
@@ -144,8 +144,7 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      {/* ✅ Uses responsive class */}
-      <div className="task-detail-grid" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
+      <div className="task-detail-grid">
         {/* Subtasks */}
         <div>
           <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
@@ -340,6 +339,7 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
             href={`${ARC_EXPLORER}/tx/${subtask.deliverableHash}`}
             target="_blank"
             rel="noopener noreferrer"
+            aria-label="View deliverable transaction on Arc Explorer (opens in new tab)"
             style={{ color: "var(--arc)", textDecoration: "none", display: "flex", alignItems: "center", gap: 3 }}
           >
             View <ExternalLink size={9} />
