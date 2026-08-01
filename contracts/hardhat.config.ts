@@ -12,7 +12,7 @@ const config: HardhatUserConfig = {
   },
   networks: {
     arcTestnet: {
-      url: "https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp",
+      url: process.env.ARC_RPC_URL || "",
       accounts: process.env.DEPLOYER_PRIVATE_KEY
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],

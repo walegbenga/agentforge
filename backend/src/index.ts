@@ -59,6 +59,19 @@ const apiLimiter = rateLimit({
 // Apply rate limiting to all /api routes
 app.use("/api", apiLimiter);
 
+// ✅ RPC proxy — separate from /api and its stricter limiter, since a single
+// wallet interaction (allowance read, approve, createTask, receipt polling)
+// can easily fire more JSON-RPC calls than the general API limiter allows.
+const rpcLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  message: { jsonrpc: "2.0", error: { code: -32005, message: "Too many RPC requests, slow down." } },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+import rpcRoutes from "./routes/rpc.routes.js";
+app.use("/rpc", rpcLimiter, rpcRoutes);
+
 // Health check — responds immediately
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

@@ -7,7 +7,7 @@ export const arcTestnet = {
   name: "Arc Testnet",
   nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 6 },
   rpcUrls: {
-    default: { http: ["https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"] },
+    default: { http: [process.env.ARC_RPC_URL || ""] },
   },
 } as const;
 
@@ -30,7 +30,7 @@ export class CircleWalletService {
       blockchains: ["EVM-TESTNET"],
       count: 1,
       walletSetId: this.walletSetId,
-      metadata: [{ name: `AgentForge - ${agentName}`, refId: `agent-${Date.now()}` }],
+      metadata: [{ name: `ForgeOps AI - ${agentName}`, refId: `agent-${Date.now()}` }],
     });
 
     const wallet = response.data?.wallets?.[0];

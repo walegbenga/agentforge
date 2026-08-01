@@ -43,9 +43,18 @@ export class OnChainService {
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   constructor() {
+    const rpcUrl = process.env.ARC_RPC_URL;
+    if (!rpcUrl) {
+      // No hardcoded fallback here on purpose — this repo is public, and a
+      // real API key baked in as a "default" is a live credential leak,
+      // not just a style issue. Fail loudly instead.
+      console.warn("⚠  ARC_RPC_URL not set — on-chain reads/writes disabled");
+      return;
+    }
+
     this.publicClient = createPublicClient({
       chain: arcTestnet,
-      transport: http(process.env.ARC_RPC_URL || "https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"),
+      transport: http(rpcUrl),
     });
 
     const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
@@ -57,7 +66,7 @@ export class OnChainService {
     this.orchestratorAccount = privateKeyToAccount(privateKey as `0x${string}`);
     this.walletClient = createWalletClient({
       chain: arcTestnet,
-      transport: http(process.env.ARC_RPC_URL || "https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"),
+      transport: http(rpcUrl),
       account: this.orchestratorAccount,
     });
 
