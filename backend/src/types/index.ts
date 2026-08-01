@@ -10,7 +10,8 @@ export type AgentCapability =
   | "fact-checking"
   | "math-reasoning"
   | "image-analysis"
-  | "planning";
+  | "planning"
+  | "app-builder";
 
 export interface AgentProfile {
   id: string;               // UUID internal
