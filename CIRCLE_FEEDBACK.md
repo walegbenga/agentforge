@@ -67,6 +67,6 @@ Track 4: Best Agentic Economy Experience on Arc
 
 ## Overall Assessment
 
-Building AgentForge on Arc with Circle's product stack was the right choice for this use case. The combination of USDC-native gas, sub-second finality, and programmatic wallet creation via Circle's API created an environment where the agent economy concept could actually work — not just as a demo, but as a functional system with real economic logic.
+Building ForgeOps AI on Arc with Circle's product stack was the right choice for this use case. The combination of USDC-native gas, sub-second finality, and programmatic wallet creation via Circle's API created an environment where the agent economy concept could actually work — not just as a demo, but as a functional system with real economic logic.
 
 The developer experience is already strong. With the improvements above, it would be exceptional.

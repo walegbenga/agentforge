@@ -1,4 +1,4 @@
-# Contributing to AgentForge
+# Contributing to ForgeOps AI
 
 ## Getting Started
 

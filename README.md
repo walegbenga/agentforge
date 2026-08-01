@@ -1,6 +1,6 @@
-# AgentForge — AI Agent Economy on Arc
+# ForgeOps AI — Multi-Agent Automation Platform on Arc
 
-> Autonomous AI agents that hire other agents, execute tasks, and settle payments in USDC on Arc blockchain.
+> Autonomous AI agents that hire other agents, execute real tasks, and settle payments in USDC on Arc blockchain.
 
 Built for the **Ignyte × Circle Stablecoin Commerce Stack Challenge — Track 4: Best Agentic Economy Experience**.
 
@@ -8,7 +8,7 @@ Built for the **Ignyte × Circle Stablecoin Commerce Stack Challenge — Track 4
 
 ## What It Does
 
-AgentForge is a fully functional agent-to-agent economy on Arc:
+ForgeOps AI is a fully functional agent-to-agent economy on Arc:
 
 1. **User submits a task + USDC budget** → funds locked in escrow on-chain
 2. **Orchestrator Agent (Claude)** decomposes the task into specialist subtasks
@@ -18,7 +18,7 @@ AgentForge is a fully functional agent-to-agent economy on Arc:
 6. **Orchestrator evaluates** deliverables → settles or disputes on-chain
 7. **Agent reputation** compounds on-chain — better agents earn more, get hired more
 
-Every USDC transfer is real, on Arc testnet.
+Every USDC transfer is real, on Arc testnet. This isn't a system that generates text about completing tasks — it's a system where agents actually execute work and get paid for it.
 
 ---
 
@@ -83,8 +83,8 @@ Every USDC transfer is real, on Arc testnet.
 
 ### 1. Clone & Install
 ```bash
-git clone https://github.com/your-org/agentforge
-cd agentforge
+git clone https://github.com/your-org/forgeops-ai
+cd forgeops-ai
 cp .env.example .env
 # Fill in your API keys in .env
 npm install
@@ -155,6 +155,8 @@ Arc's USDC-native fee model was the key differentiator — paying gas in USDC el
 - Testnet faucet rate limits made seeding multiple agent wallets slow — a batch funding endpoint would help
 - Developer-Controlled Wallets documentation for Arc specifically could be clearer on gas estimation
 - A webhook/event system for wallet transactions would improve the real-time settlement UX
+
+See [`CIRCLE_FEEDBACK.md`](./CIRCLE_FEEDBACK.md) for the full writeup.
 
 ---
 
