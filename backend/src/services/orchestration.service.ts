@@ -101,7 +101,68 @@ export class OrchestrationEngine {
       status: "assigned",
     });
 
-    return task;
+    // ✅ FIX: Claiming previously just parked the subtask at "assigned" and
+    // stopped — nothing ever executed it, evaluated it, or re-checked
+    // whether the task as a whole could now complete. A task with one
+    // unclaimable subtask (no matching agent at assignment time) was a
+    // permanent dead end: even a human manually claiming it here did
+    // nothing, because this function never continued the pipeline.
+    // Now claiming actually resumes orchestration for this task.
+    task.status = "executing";
+    this.emit(task, "task:updated", { status: "executing" });
+    await taskStore.set(task);
+
+    await this.executeSubtask(task, subtask);
+
+    task.status = "evaluating";
+    this.emit(task, "task:updated", { status: "evaluating" });
+    await taskStore.set(task);
+
+    await this.evaluateAndSettle(task);
+    await this.finalizeTask(task);
+
+    return (await taskStore.get(taskId))!;
+  }
+
+  /**
+   * Single source of truth for "is this task actually done." Called after
+   * the initial orchestration run AND after any subtask is claimed and
+   * resolved later — so a task can still reach "completed" even if one of
+   * its subtasks started out unassigned and was claimed well after the
+   * rest of the task had already settled or disputed.
+   */
+  private async finalizeTask(task: Task): Promise<void> {
+    const allResolved = task.subtasks.every((s) => s.status === "settled" || s.status === "disputed");
+
+    if (allResolved) {
+      task.status = "completed";
+      task.completedAt = new Date().toISOString();
+      await taskStore.set(task);
+      this.emit(task, "task:updated", {
+        status: "completed",
+        completedAt: task.completedAt,
+      });
+      const disputedCount = task.subtasks.filter((s) => s.status === "disputed").length;
+      this.log(
+        task,
+        "success",
+        disputedCount > 0
+          ? `✓ Task completed — ${task.subtasks.length - disputedCount}/${task.subtasks.length} subtasks settled, ${disputedCount} disputed`
+          : "✓ Task completed successfully"
+      );
+    } else {
+      const stillPending = task.subtasks.filter((s) => s.status === "pending").length;
+      task.status = "pending";
+      await taskStore.set(task);
+      this.log(
+        task,
+        "info",
+        stillPending > 0
+          ? `Task partially resolved. ${stillPending} subtask(s) still unclaimed — open for claiming.`
+          : "Task partially resolved. Waiting on subtasks still in progress."
+      );
+      this.emit(task, "task:updated", { status: "pending" });
+    }
   }
 
   private async runOrchestration(task: Task): Promise<void> {
@@ -146,23 +207,7 @@ export class OrchestrationEngine {
 
     await this.evaluateAndSettle(task);
 
-    const allSettled = task.subtasks.every((s) => s.status === "settled" || s.status === "disputed");
-
-    if (allSettled) {
-      task.status = "completed";
-      task.completedAt = new Date().toISOString();
-      await taskStore.set(task);
-      this.emit(task, "task:updated", {
-        status: "completed",
-        completedAt: task.completedAt,
-      });
-      this.log(task, "success", "✓ Task completed successfully");
-    } else {
-      task.status = "pending";
-      this.log(task, "info", "Task partially completed. Waiting for remaining subtasks.");
-      this.emit(task, "task:updated", { status: "pending" });
-      await taskStore.set(task);
-    }
+    await this.finalizeTask(task);
   }
 
   private async createOnChainTask(task: Task): Promise<void> {
@@ -475,7 +520,7 @@ Return ONLY valid JSON (no markdown):
 
     return `${personas[capability] || `You are ${agentName}, an AI specialist.`}
 
-You are operating as an autonomous AI agent in the AgentForge economy on Arc blockchain.
+You are operating as an autonomous AI agent in the ForgeOps AI economy on Arc blockchain.
 Your work is evaluated on-chain and directly impacts your reputation score.
 Be thorough, accurate, and professional. Deliver real value.`;
   }

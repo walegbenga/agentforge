@@ -1,7 +1,6 @@
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { saveAs } from "file-saver";
 import JSZip from "jszip";
-import html2pdf from "html2pdf.js";
 import type { Task, Subtask } from "../types";
 
 // 1. Sanitize Name for Filenames
@@ -20,72 +19,129 @@ export const hasCodeBlocks = (task: Task): boolean => {
   return task.subtasks.some((sub) => /```[\s\S]*?```/.test(sub.deliverable || ""));
 };
 
-// 3. Generate PDF from Element (✅ CHATGPT'S IMPROVED CONFIG)
-export const generatePDF = async (element: HTMLElement, filename: string): Promise<void> => {
-  const opt = {
-    margin: 0.5,
-    filename,
-    image: { type: "jpeg", quality: 1 },
-    html2canvas: {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: "#ffffff",
-      scrollY: 0,
-      logging: false,
-      windowWidth: document.documentElement.scrollWidth, // 🔥 Captures full width
-      windowHeight: document.documentElement.scrollHeight, // 🔥 Captures full height
-    },
-    jsPDF: {
-      unit: "in",
-      format: "letter",
-      orientation: "portrait",
-    },
-  };
-
-  // 🔥 ChatGPT's stabilization delay
-  await new Promise((r) => setTimeout(r, 100));
-  await html2pdf().set(opt).from(element).save();
-};
+// 3. PDF export is handled by react-to-print (see TaskReportPrintable.tsx +
+// the useReactToPrint hook in TaskDetail.tsx) — it drives the browser's
+// native print-to-PDF, producing real selectable/searchable text with
+// correct page breaks. The previous html2pdf.js/html2canvas approach
+// rasterized the page into an image, which is why long content and code
+// blocks could get cut off or blurred across page boundaries.
 
 // 4. Download Consolidated DOCX (Word)
 export const downloadTaskDOCX = async (task: Task): Promise<void> => {
   const filename = getSafeFilename(task.description, "docx");
 
+  const settledCount = task.subtasks.filter((s) => s.status === "settled").length;
+  const disputedCount = task.subtasks.filter((s) => s.status === "disputed").length;
+  const paidOut = task.subtasks.filter((s) => s.status === "settled").reduce((sum, s) => sum + s.budget, 0);
+
   const children: Paragraph[] = [
+    new Paragraph({
+      text: "FORGEOPS AI — TASK REPORT",
+      spacing: { after: 100 },
+      children: [new TextRun({ text: "FORGEOPS AI — TASK REPORT", size: 16, color: "6b7280", bold: true })],
+    }),
     new Paragraph({
       text: task.description,
       heading: HeadingLevel.HEADING_1,
-      spacing: { after: 200 },
+      spacing: { after: 150 },
     }),
     new Paragraph({
-      text: `Total Budget: $${(task.totalBudget / 1_000_000).toFixed(2)} USDC`,
       spacing: { after: 400 },
+      children: [
+        new TextRun({
+          text:
+            `Total Budget: $${(task.totalBudget / 1_000_000).toFixed(2)} USDC   |   ` +
+            `Paid Out: $${(paidOut / 1_000_000).toFixed(2)} USDC   |   ` +
+            `Settled: ${settledCount}/${task.subtasks.length}   |   ` +
+            `Disputed: ${disputedCount}/${task.subtasks.length}`,
+          color: "6b7280",
+          size: 20,
+        }),
+      ],
     }),
   ];
 
   task.subtasks.forEach((sub: Subtask, index: number) => {
-    if (!sub.deliverable) return;
-
     children.push(
       new Paragraph({
         text: `Subtask ${index + 1}: ${sub.description}`,
         heading: HeadingLevel.HEADING_2,
-        spacing: { before: 300, after: 100 },
-      })
-    );
-
-    const cleanText = sub.deliverable
-      .replace(/```[\s\S]*?```/g, "[Code Block - See PDF or Code Download]")
-      .replace(/#{1,6}\s/g, "")
-      .replace(/\*\*/g, "")
-      .replace(/\*/g, "");
-
-    children.push(
+        spacing: { before: 300, after: 60 },
+      }),
       new Paragraph({
-        children: [new TextRun(cleanText)],
-        spacing: { after: 200 },
+        spacing: { after: 150 },
+        children: [
+          new TextRun({
+            text: `Agent: ${sub.assignedAgent?.name || "Unassigned"}   |   Capability: ${sub.capability}   |   ` +
+              `Budget: $${(sub.budget / 1_000_000).toFixed(2)} USDC   |   Status: ${sub.status.toUpperCase()}`,
+            italics: true,
+            color: "6b7280",
+            size: 18,
+          }),
+        ],
       })
     );
+
+    if (sub.status === "disputed") {
+      children.push(
+        new Paragraph({
+          spacing: { after: 100 },
+          children: [
+            new TextRun({
+              text: "⚠ This subtask was disputed and did not settle.",
+              bold: true,
+              color: "a3231a",
+            }),
+            ...(sub.error ? [new TextRun({ text: `  Reason: ${sub.error}`, color: "a3231a", break: 1 })] : []),
+          ],
+        })
+      );
+    }
+
+    if (!sub.deliverable) {
+      children.push(
+        new Paragraph({
+          spacing: { after: 200 },
+          children: [new TextRun({ text: `No deliverable — still ${sub.status}.`, italics: true, color: "9ca3af" })],
+        })
+      );
+      return;
+    }
+
+    // Split on fenced code blocks so code renders as real monospace text
+    // instead of being stripped to a "[Code Block]" placeholder.
+    const parts = sub.deliverable.split(/```(?:\w+)?\n?([\s\S]*?)```/g);
+    parts.forEach((part, i) => {
+      const isCode = i % 2 === 1; // odd indices are the captured code group
+      if (!part.trim()) return;
+
+      if (isCode) {
+        const lines = part.replace(/\n$/, "").split("\n");
+        children.push(
+          new Paragraph({
+            spacing: { before: 100, after: 200 },
+            shading: { fill: "F4F5F7" },
+            children: lines.flatMap((line, li) => [
+              ...(li > 0 ? [new TextRun({ text: "", break: 1 })] : []),
+              new TextRun({ text: line || " ", font: "Courier New", size: 18 }),
+            ]),
+          })
+        );
+      } else {
+        const cleanText = part
+          .replace(/#{1,6}\s/g, "")
+          .replace(/\*\*/g, "")
+          .replace(/\*/g, "")
+          .trim();
+        if (!cleanText) return;
+        children.push(
+          new Paragraph({
+            children: [new TextRun(cleanText)],
+            spacing: { after: 200 },
+          })
+        );
+      }
+    });
   });
 
   const doc = new Document({ sections: [{ children }] });
@@ -115,7 +171,7 @@ export const downloadTaskCode = (task: Task): void => {
     return;
   }
 
-  const taskNameBase = getSafeFilename(task.description, "").replace(/\./g, "") || "agentforge_task";
+  const taskNameBase = getSafeFilename(task.description, "").replace(/\./g, "") || "forgeops_task";
 
   if (codeBlocks.length === 1) {
     const ext = codeBlocks[0].lang === "javascript" ? "js" : codeBlocks[0].lang;
