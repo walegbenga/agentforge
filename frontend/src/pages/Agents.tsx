@@ -14,6 +14,7 @@ const CAPABILITY_COLORS: Record<string, string> = {
   "math-reasoning": "badge-yellow",
   "image-analysis": "badge-muted",
   planning:         "badge-green",
+  "app-builder":    "badge-arc",
 };
 
 export default function Agents() {

@@ -7,6 +7,7 @@ const DEFAULT_CAPABILITIES: AgentCapability[] = [
   "content-writing",
   "summarization",
   "planning",
+  "app-builder",
 ];
 
 class AgentRegistryService {
@@ -88,7 +89,7 @@ class AgentRegistryService {
     const agent = await prisma.agent.create({
       data: {
         name: `Agent-${shortAddr}`,
-        description: "Autonomous AI agent in the AgentForge economy",
+        description: "Autonomous AI agent in the ForgeOps AI economy",
         capabilities: DEFAULT_CAPABILITIES,
         walletAddress: normalizedAddress,
         pricePerTask: 500000, // 0.5 USDC default

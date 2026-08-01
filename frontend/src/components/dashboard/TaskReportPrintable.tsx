@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Task, Subtask, SubtaskStatus } from "../../types";
+import { parseFileDeliverable } from "../../utils/fileDeliverable";
 
 const STATUS_STYLE: Record<SubtaskStatus, { label: string; color: string; bg: string }> = {
   settled: { label: "SETTLED", color: "#0a7a4a", bg: "#e6f7ef" },
@@ -80,6 +81,58 @@ function DeliverableBody({ markdown }: { markdown: string }) {
   );
 }
 
+// Renders a parsed app-builder file list for print: each file gets its own
+// labeled, monospace block with break-inside avoid on the header so a
+// filename never gets orphaned at the bottom of a page.
+function FileTreeBody({ intro, files }: { intro: string; files: { path: string; language: string; content: string }[] }) {
+  return (
+    <div>
+      {intro && <p style={{ fontSize: 12, lineHeight: 1.6, color: "#1a1a1a", margin: "0 0 10px" }}>{intro}</p>}
+      <div style={{ fontSize: 10.5, color: "#6b7280", marginBottom: 8, fontWeight: 700 }}>
+        {files.length} file{files.length !== 1 ? "s" : ""} generated
+      </div>
+      {files.map((file) => (
+        <div key={file.path} style={{ marginBottom: 12 }}>
+          <div
+            style={{
+              breakInside: "avoid",
+              pageBreakInside: "avoid",
+              fontFamily: "'Courier New', Courier, monospace",
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: "#111",
+              background: "#eef0f3",
+              padding: "4px 8px",
+              borderRadius: "4px 4px 0 0",
+              border: "1px solid #dde1e7",
+              borderBottom: "none",
+            }}
+          >
+            {file.path}
+          </div>
+          <pre
+            style={{
+              background: "#f4f5f7",
+              border: "1px solid #dde1e7",
+              borderRadius: "0 0 4px 4px",
+              padding: "10px 12px",
+              fontFamily: "'Courier New', Courier, monospace",
+              fontSize: "10px",
+              lineHeight: 1.5,
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+              color: "#1a1a1a",
+              margin: 0,
+            }}
+          >
+            {file.content}
+          </pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SubtaskSection({ subtask, index }: { subtask: Subtask; index: number }) {
   const status = STATUS_STYLE[subtask.status];
 
@@ -133,12 +186,22 @@ function SubtaskSection({ subtask, index }: { subtask: Subtask; index: number })
               <div style={{ fontSize: 10.5, color: "#7a1f18", marginBottom: 4, fontWeight: 700 }}>
                 Submitted work (not approved):
               </div>
-              <DeliverableBody markdown={subtask.deliverable} />
+              {(() => {
+                const parsed = parseFileDeliverable(subtask.deliverable);
+                return parsed
+                  ? <FileTreeBody intro={parsed.intro} files={parsed.files} />
+                  : <DeliverableBody markdown={subtask.deliverable} />;
+              })()}
             </div>
           )}
         </div>
       ) : subtask.deliverable ? (
-        <DeliverableBody markdown={subtask.deliverable} />
+        (() => {
+          const parsed = parseFileDeliverable(subtask.deliverable);
+          return parsed
+            ? <FileTreeBody intro={parsed.intro} files={parsed.files} />
+            : <DeliverableBody markdown={subtask.deliverable} />;
+        })()
       ) : (
         <p style={{ fontSize: 12, fontStyle: "italic", color: "#9ca3af" }}>
           No deliverable yet — this subtask is still {subtask.status}.

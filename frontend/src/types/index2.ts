@@ -1,7 +1,7 @@
 export type AgentCapability =
   | "research" | "data-analysis" | "code-review" | "content-writing"
   | "summarization" | "translation" | "fact-checking" | "math-reasoning"
-  | "image-analysis" | "planning" | "app-builder";
+  | "image-analysis" | "planning";
 
 export interface AgentProfile {
   id: string;

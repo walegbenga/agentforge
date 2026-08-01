@@ -5,6 +5,7 @@ import { agentRegistry } from "./agentRegistry.service.js";
 import { onChainService } from "./onchain.service.js";
 import { wsService } from "./websocket.service.js";
 import { taskStore } from "./taskStore.service.js";
+import { parseFileDeliverable, runStructuralCheck } from "../utils/fileDeliverable.js";
 import type {
   Task,
   Subtask,
@@ -312,7 +313,7 @@ export class OrchestrationEngine {
     const validCapabilities: AgentCapability[] = [
       "research", "data-analysis", "code-review", "content-writing",
       "summarization", "translation", "fact-checking", "math-reasoning",
-      "image-analysis", "planning",
+      "image-analysis", "planning", "app-builder",
     ];
 
     const totalBudgetUSDC = task.totalBudget / 1_000_000;
@@ -333,6 +334,14 @@ AVAILABLE AGENTS:
 ${availableAgents.length > 0 ? JSON.stringify(availableAgents, null, 2) : "No agents registered yet. Use all valid capabilities."}
 
 VALID CAPABILITIES: ${validCapabilities.join(", ")}
+
+PIPELINE GUIDANCE:
+- If the task asks to build, create, or code an app/website/tool/script (i.e. it wants working software as the output), use this pipeline instead of a single subtask:
+    1. "planning" — produce a concrete spec: features, tech stack, file structure
+    2. "app-builder" — write the actual application: real, complete file contents (not snippets or pseudocode), following the spec
+    3. "code-review" — review the app-builder's actual output for bugs, security issues, and missing pieces
+  Do not use "code-review" as a substitute for "app-builder" — code-review's job is to critique existing code, not author a new application.
+- If the task is research, writing, analysis, or anything that isn't "produce working software," use whichever single capability fits best — don't force the build pipeline onto non-coding tasks.
 
 Return ONLY valid JSON (no markdown, no backticks):
 {
@@ -460,7 +469,7 @@ Rules:
     try {
       const response = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
-        max_tokens: 4000,
+        max_tokens: subtask.capability === "app-builder" ? 8000 : 4000,
         temperature: 0.5,
         messages: [
           {
@@ -471,7 +480,19 @@ IMPORTANT FORMATTING RULES:
 - You MUST output your deliverable using Markdown formatting.
 - Use # for main titles, ## for subtitles, and bullet points for lists.
 - If you are writing code, you MUST wrap it in code blocks with the language specified (e.g., \`\`\`javascript ... \`\`\` or \`\`\`solidity ... \`\`\`).
-- Do not just output a wall of text. Structure it professionally.`,
+- Do not just output a wall of text. Structure it professionally.${subtask.capability === "app-builder" ? `
+
+APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
+- Output the COMPLETE contents of every file needed to run the app. No placeholders, no "// rest of the code here", no truncation.
+- For EACH file, use exactly this format — a heading line, then a fenced code block with the language:
+
+### FILE: relative/path/to/file.ext
+\`\`\`language
+<complete file contents>
+\`\`\`
+
+- Include every file needed: source files, package.json/requirements.txt, a README.md with setup + run instructions, and config files. A "working app" means someone can follow the README and actually run it.
+- Do not add commentary between files beyond the "### FILE:" heading — keep narrative explanation to a short intro before the first file.` : ""}`,
           },
           {
             role: "user",
@@ -576,6 +597,10 @@ IMPORTANT FORMATTING RULES:
   }
 
   private async evaluateDeliverable(task: Task, subtask: Subtask): Promise<EvaluationResult> {
+    if (subtask.capability === "app-builder") {
+      return this.evaluateAppBuilderDeliverable(task, subtask);
+    }
+
     const response = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       max_tokens: 500,
@@ -605,6 +630,92 @@ Return ONLY valid JSON (no markdown):
     return { ...result, deliverableHash: subtask.deliverableHash! };
   }
 
+  /**
+   * Stricter, "does this look like a working app" evaluation for
+   * app-builder subtasks. Two stages:
+   *   1. Deterministic structural check (regex-based, no LLM) — catches
+   *      obvious failures (stub code, no dependency manifest) consistently
+   *      and cheaply, before spending a model call.
+   *   2. If structure passes, an LLM rubric specific to app completeness
+   *      — not the generic "quality and relevance" prompt used elsewhere,
+   *      which has no concept of "does this actually run."
+   */
+  private async evaluateAppBuilderDeliverable(task: Task, subtask: Subtask): Promise<EvaluationResult> {
+    const parsed = parseFileDeliverable(subtask.deliverable || "");
+
+    if (!parsed) {
+      return {
+        approved: false,
+        score: 0,
+        feedback: "Did not follow the required '### FILE: path' output format — no parseable files were produced.",
+        deliverableHash: subtask.deliverableHash!,
+      };
+    }
+
+    const structural = runStructuralCheck(parsed);
+    if (!structural.passed) {
+      return {
+        approved: false,
+        score: 20,
+        feedback: `Failed structural check: ${structural.issues.join("; ")}`,
+        deliverableHash: subtask.deliverableHash!,
+      };
+    }
+
+    const fileManifest = parsed.files.map((f) => `- ${f.path} (${f.content.split("\n").length} lines)`).join("\n");
+
+    const response = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      max_tokens: 500,
+      temperature: 0.1,
+      messages: [
+        {
+          role: "user",
+          content: `You are judging whether this is a genuinely complete, working application — not just plausible-looking code.
+
+ORIGINAL TASK: ${task.description}
+SUBTASK: ${subtask.description}
+
+FILES SUBMITTED:
+${fileManifest}
+${structural.hasReadme ? "" : "\n(No README was found — note this as a gap.)"}
+
+RUBRIC — check specifically for:
+1. Do the files actually implement the requested features, or just scaffold/boilerplate with no real logic?
+2. Are file references consistent — does the manifest's entry point match an actual file, do imports point at files that exist in the submission?
+3. Is there any code that looks unfinished (dead-end functions, logic that doesn't connect, obviously wrong syntax)?
+4. Would a developer following the README (if present) actually be able to run this?
+
+Be genuinely strict — approve only if this would actually run and do what was asked, not if it merely "looks like" an app.
+
+FULL SUBMISSION:
+${subtask.deliverable}
+
+Return ONLY valid JSON (no markdown):
+{
+  "approved": <true/false>,
+  "score": <0-100>,
+  "feedback": "<brief, specific evaluation — cite a file if something is wrong>"
+}`,
+        },
+      ],
+    });
+
+    const text = response.choices[0]?.message?.content ?? "";
+    const clean = text.replace(/```json|```/g, "").trim();
+    const result = JSON.parse(clean);
+
+    // A missing README doesn't hard-fail structurally, but it should never
+    // be silently approved either — cap the score and note it regardless
+    // of what the model decided on its own.
+    if (!structural.hasReadme && result.approved && result.score > 70) {
+      result.score = 70;
+      result.feedback = `${result.feedback} (Capped: no README with setup instructions.)`;
+    }
+
+    return { ...result, deliverableHash: subtask.deliverableHash! };
+  }
+
   private buildAgentSystemPrompt(agentName: string, capability: AgentCapability): string {
     const personas: Record<AgentCapability, string> = {
       research: "You are ResearchBot, an expert at deep web research, source aggregation, and comprehensive information gathering.",
@@ -617,6 +728,7 @@ Return ONLY valid JSON (no markdown):
       "math-reasoning": "You are MathBot, solving mathematical problems and quantitative challenges step-by-step.",
       "image-analysis": "You are VisionBot, analyzing and describing visual content in detail.",
       planning: "You are PlannerBot, creating strategic, actionable plans and structured workflows.",
+      "app-builder": "You are BuilderBot, a full-stack engineer who builds complete, working applications from an idea or spec — real file structure, real working code, ready to run.",
     };
 
     return `${personas[capability] || `You are ${agentName}, an AI specialist.`}

@@ -2,6 +2,7 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { saveAs } from "file-saver";
 import JSZip from "jszip";
 import type { Task, Subtask } from "../types";
+import { parseFileDeliverable } from "./fileDeliverable";
 
 // 1. Sanitize Name for Filenames
 export const getSafeFilename = (description: string, extension: string): string => {
@@ -151,13 +152,33 @@ export const downloadTaskDOCX = async (task: Task): Promise<void> => {
 
 // 5. Smart Code Download with Descriptive Filenames
 export const downloadTaskCode = (task: Task): void => {
-  const codeBlocks: { lang: string; code: string; subtaskIndex: number; description: string }[] = [];
+  const taskNameBase = getSafeFilename(task.description, "").replace(/\.$/, "") || "forgeops_task";
+
+  // Real per-subtask files (from app-builder's "### FILE: path" format) get
+  // their real relative paths in the zip — an actual project structure,
+  // not a flat pile of numbered snippets.
+  const realFiles: { path: string; content: string }[] = [];
+  const looseCodeBlocks: { lang: string; code: string; subtaskIndex: number; description: string }[] = [];
 
   task.subtasks.forEach((sub, index) => {
     if (!sub.deliverable) return;
+    const parsed = parseFileDeliverable(sub.deliverable);
+    if (parsed) {
+      const subtaskFolder = getSafeFilename(sub.description, "").replace(/\.$/, "") || `subtask_${index + 1}`;
+      parsed.files.forEach((file) => {
+        // Namespace by subtask when there's more than one app-builder
+        // subtask, so files from different subtasks don't collide.
+        const prefix = task.subtasks.filter((s) => s.deliverable && parseFileDeliverable(s.deliverable)).length > 1
+          ? `${subtaskFolder}/`
+          : "";
+        realFiles.push({ path: `${prefix}${file.path}`, content: file.content });
+      });
+      return;
+    }
+
     const matches = sub.deliverable.matchAll(/```(\w+)?\n([\s\S]*?)```/g);
     for (const match of matches) {
-      codeBlocks.push({
+      looseCodeBlocks.push({
         lang: match[1] || "txt",
         code: match[2],
         subtaskIndex: index,
@@ -166,28 +187,29 @@ export const downloadTaskCode = (task: Task): void => {
     }
   });
 
-  if (codeBlocks.length === 0) {
-    alert("No code blocks found in this task!");
+  if (realFiles.length === 0 && looseCodeBlocks.length === 0) {
+    alert("No code found in this task!");
     return;
   }
 
-  const taskNameBase = getSafeFilename(task.description, "").replace(/\./g, "") || "forgeops_task";
-
-  if (codeBlocks.length === 1) {
-    const ext = codeBlocks[0].lang === "javascript" ? "js" : codeBlocks[0].lang;
-    const fileBase = getSafeFilename(codeBlocks[0].description, "").replace(/\./g, "") || taskNameBase;
-    const blob = new Blob([codeBlocks[0].code], { type: "text/plain" });
+  // Single loose snippet, no real files — just download the one file directly.
+  if (realFiles.length === 0 && looseCodeBlocks.length === 1) {
+    const ext = looseCodeBlocks[0].lang === "javascript" ? "js" : looseCodeBlocks[0].lang;
+    const fileBase = getSafeFilename(looseCodeBlocks[0].description, "").replace(/\.$/, "") || taskNameBase;
+    const blob = new Blob([looseCodeBlocks[0].code], { type: "text/plain" });
     saveAs(blob, `${fileBase}.${ext}`);
-  } else {
-    const zip = new JSZip();
-    codeBlocks.forEach((block) => {
-      const ext = block.lang === "javascript" ? "js" : block.lang;
-      const fileBase = getSafeFilename(block.description, "").replace(/\./g, "") || `subtask_${block.subtaskIndex + 1}`;
-      zip.file(`${fileBase}.${ext}`, block.code);
-    });
-    
-    zip.generateAsync({ type: "blob" }).then((blob) => {
-      saveAs(blob, `${taskNameBase}_source_code.zip`);
-    });
+    return;
   }
+
+  const zip = new JSZip();
+  realFiles.forEach((file) => zip.file(file.path, file.content));
+  looseCodeBlocks.forEach((block) => {
+    const ext = block.lang === "javascript" ? "js" : block.lang;
+    const fileBase = getSafeFilename(block.description, "").replace(/\.$/, "") || `subtask_${block.subtaskIndex + 1}`;
+    zip.file(`${fileBase}.${ext}`, block.code);
+  });
+
+  zip.generateAsync({ type: "blob" }).then((blob) => {
+    saveAs(blob, `${taskNameBase}_source_code.zip`);
+  });
 };

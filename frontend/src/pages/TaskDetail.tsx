@@ -11,6 +11,7 @@ import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { downloadTaskDOCX, downloadTaskCode, hasCodeBlocks, getSafeFilename } from "../utils/exports";
+import { parseFileDeliverable } from "../utils/fileDeliverable";
 import TaskReportPrintable from "../components/dashboard/TaskReportPrintable";
 
 const ARC_EXPLORER = "https://explorer.testnet.arc.network";
@@ -272,7 +273,8 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
         </div>
       )}
 
-      {/* ✅ UPDATED: Rich Markdown rendering instead of raw text */}
+      {/* App-builder deliverables render as a real file tree; everything
+          else falls back to the original rich-markdown rendering. */}
       {subtask.deliverable && subtask.status === "settled" && (
         <details style={{ marginTop: 10 }}>
           <summary style={{ fontSize: "0.75rem", color: "var(--text-secondary)", cursor: "pointer", userSelect: "none" }}>
@@ -283,35 +285,73 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
             background: "var(--bg)",
             borderRadius: "var(--radius)",
             fontSize: "0.85rem", color: "var(--text-secondary)",
-            lineHeight: 1.6, maxHeight: 400, overflow: "auto",
+            lineHeight: 1.6, maxHeight: 520, overflow: "auto",
           }}>
-            <ReactMarkdown
-              components={{
-                code({ node, inline, className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || "");
-                  return !inline && match ? (
-                    <SyntaxHighlighter
-                      style={vscDarkPlus}
-                      language={match[1]}
-                      PreTag="div"
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, "")}
-                    </SyntaxHighlighter>
-                  ) : (
-                    <code className={className} style={{ background: "var(--bg-hover)", padding: "2px 4px", borderRadius: 4, fontSize: "0.85em" }} {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-                h1: ({children}) => <h1 style={{color: "var(--text-primary)", fontSize: "1.2rem", marginBottom: "8px"}}>{children}</h1>,
-                h2: ({children}) => <h2 style={{color: "var(--text-primary)", fontSize: "1.1rem", marginBottom: "6px"}}>{children}</h2>,
-                ul: ({children}) => <ul style={{marginBottom: "8px", paddingLeft: "20px"}}>{children}</ul>,
-                p: ({children}) => <p style={{marginBottom: "8px"}}>{children}</p>,
-              }}
-            >
-              {subtask.deliverable}
-            </ReactMarkdown>
+            {(() => {
+              const parsed = parseFileDeliverable(subtask.deliverable);
+              if (parsed) {
+                return (
+                  <div>
+                    {parsed.intro && (
+                      <p style={{ marginBottom: 12, color: "var(--text-secondary)" }}>{parsed.intro}</p>
+                    )}
+                    <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                      <FileCode size={12} /> {parsed.files.length} file{parsed.files.length !== 1 ? "s" : ""} generated
+                    </div>
+                    {parsed.files.map((file) => (
+                      <details key={file.path} open style={{ marginBottom: 10, border: "1px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
+                        <summary
+                          style={{
+                            padding: "6px 10px",
+                            background: "var(--bg-hover)",
+                            fontFamily: "var(--font-mono)",
+                            fontSize: "0.75rem",
+                            color: "var(--text-primary)",
+                            cursor: "pointer",
+                            userSelect: "none",
+                          }}
+                        >
+                          {file.path}
+                        </summary>
+                        <SyntaxHighlighter style={vscDarkPlus} language={file.language} PreTag="div" customStyle={{ margin: 0, fontSize: "0.78rem" }}>
+                          {file.content}
+                        </SyntaxHighlighter>
+                      </details>
+                    ))}
+                  </div>
+                );
+              }
+
+              return (
+                <ReactMarkdown
+                  components={{
+                    code({ node, inline, className, children, ...props }) {
+                      const match = /language-(\w+)/.exec(className || "");
+                      return !inline && match ? (
+                        <SyntaxHighlighter
+                          style={vscDarkPlus}
+                          language={match[1]}
+                          PreTag="div"
+                          {...props}
+                        >
+                          {String(children).replace(/\n$/, "")}
+                        </SyntaxHighlighter>
+                      ) : (
+                        <code className={className} style={{ background: "var(--bg-hover)", padding: "2px 4px", borderRadius: 4, fontSize: "0.85em" }} {...props}>
+                          {children}
+                        </code>
+                      );
+                    },
+                    h1: ({children}) => <h1 style={{color: "var(--text-primary)", fontSize: "1.2rem", marginBottom: "8px"}}>{children}</h1>,
+                    h2: ({children}) => <h2 style={{color: "var(--text-primary)", fontSize: "1.1rem", marginBottom: "6px"}}>{children}</h2>,
+                    ul: ({children}) => <ul style={{marginBottom: "8px", paddingLeft: "20px"}}>{children}</ul>,
+                    p: ({children}) => <p style={{marginBottom: "8px"}}>{children}</p>,
+                  }}
+                >
+                  {subtask.deliverable}
+                </ReactMarkdown>
+              );
+            })()}
           </div>
         </details>
       )}
