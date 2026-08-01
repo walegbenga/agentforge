@@ -25,6 +25,7 @@ const ESCROW_ABI = [
   { name: "assignSubtask", type: "function", inputs: [{ name: "taskId", type: "uint256" }, { name: "agentWallet", type: "address" }, { name: "capability", type: "bytes32" }, { name: "budget", type: "uint256" }, { name: "description", type: "string" }], outputs: [] },
   { name: "settleSubtask", type: "function", inputs: [{ name: "taskId", type: "uint256" }, { name: "subtaskIndex", type: "uint256" }], outputs: [] },
   { name: "disputeSubtask", type: "function", inputs: [{ name: "taskId", type: "uint256" }, { name: "subtaskIndex", type: "uint256" }], outputs: [] },
+  { name: "completeTask", type: "function", inputs: [{ name: "taskId", type: "uint256" }], outputs: [] },
   { name: "getTask", type: "function", stateMutability: "view", inputs: [{ name: "taskId", type: "uint256" }], outputs: [{ type: "tuple", components: [{ name: "id", type: "uint256" }, { name: "requester", type: "address" }, { name: "description", type: "string" }, { name: "totalBudget", type: "uint256" }, { name: "allocatedBudget", type: "uint256" }, { name: "subtaskCount", type: "uint256" }, { name: "settledCount", type: "uint256" }, { name: "status", type: "uint8" }, { name: "createdAt", type: "uint256" }, { name: "expiresAt", type: "uint256" }] }] },
   { name: "TaskCreated", type: "event", inputs: [{ name: "taskId", type: "uint256", indexed: true }, { name: "requester", type: "address", indexed: true }, { name: "budget", type: "uint256", indexed: false }] },
 ] as const;
@@ -207,6 +208,23 @@ export class OnChainService {
       abi: ESCROW_ABI,
       functionName: "disputeSubtask",
       args: [BigInt(taskId), BigInt(subtaskIndex)],
+    });
+    await this.publicClient.waitForTransactionReceipt({ hash });
+    return hash;
+  }
+
+  /**
+   * Marks the task complete on-chain and refunds any unallocated budget
+   * (e.g. from disputed subtasks) back to the requester. This is the ONLY
+   * code path that actually returns that money — without calling this,
+   * disputed/unallocated USDC just sits frozen in the escrow contract.
+   */
+  async completeTask(taskId: string): Promise<string> {
+    const hash = await this.getWalletClient().writeContract({
+      address: addresses.contracts.OrchestratorEscrow as `0x${string}`,
+      abi: ESCROW_ABI,
+      functionName: "completeTask",
+      args: [BigInt(taskId)],
     });
     await this.publicClient.waitForTransactionReceipt({ hash });
     return hash;

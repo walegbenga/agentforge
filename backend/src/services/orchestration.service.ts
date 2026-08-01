@@ -146,6 +146,29 @@ export class OrchestrationEngine {
     const allResolved = task.subtasks.every((s) => s.status === "settled" || s.status === "disputed");
 
     if (allResolved) {
+      // ✅ FIX: this is the only call in the whole codebase that actually
+      // triggers the contract's refund of unallocated budget (from disputed
+      // subtasks, or any budget never assigned to a subtask at all) back to
+      // the requester. Without it, that USDC just sits frozen in escrow
+      // forever — completeTask() was never called anywhere before this.
+      if (task.onChainTaskId) {
+        try {
+          const disputedCount = task.subtasks.filter((s) => s.status === "disputed").length;
+          await onChainService.completeTask(task.onChainTaskId);
+          if (disputedCount > 0) {
+            this.log(task, "success", `On-chain: unallocated budget from ${disputedCount} disputed subtask(s) refunded to requester`);
+          }
+        } catch (chainErr) {
+          // Contract auto-completes via settleSubtask() when every subtask
+          // settles with zero disputes, so "already completed" here is
+          // expected and not an error — only log anything else.
+          const msg = (chainErr as Error).message;
+          if (!msg.includes("Not active")) {
+            this.log(task, "warning", `On-chain task completion failed: ${msg}`);
+          }
+        }
+      }
+
       task.status = "completed";
       task.completedAt = new Date().toISOString();
       await taskStore.set(task);
@@ -466,11 +489,12 @@ IMPORTANT FORMATTING RULES:
       subtask.submittedAt = new Date().toISOString();
       await taskStore.set(task);
 
-      try {
-        await onChainService.settleSubtask(task.onChainTaskId!, subtask.subtaskIndex);
-        task.txHashes[`settle-${subtask.subtaskIndex}`] = deliverableHash;
-        await taskStore.set(task);
-      } catch {}
+      // ⚠️ FIX: on-chain settlement (which pays the agent) used to happen
+      // right here, immediately on submission — before evaluateAndSettle()
+      // ever ran. That meant a subtask judged "disputed" moments later had
+      // already been paid out in full on-chain; the dispute was cosmetic.
+      // Payment now only happens in evaluateAndSettle(), after the
+      // deliverable is actually judged.
 
       this.log(task, "info", `${agent.name} submitted deliverable`, {
         hash: deliverableHash,
@@ -487,6 +511,12 @@ IMPORTANT FORMATTING RULES:
       subtask.error = (err as Error).message;
       await taskStore.set(task);
       this.log(task, "error", `${agent.name} failed: ${(err as Error).message}`);
+
+      try {
+        await onChainService.disputeSubtask(task.onChainTaskId!, subtask.subtaskIndex);
+      } catch (chainErr) {
+        this.log(task, "warning", `Could not free on-chain budget for failed subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
+      }
     }
   }
 
@@ -496,6 +526,15 @@ IMPORTANT FORMATTING RULES:
       const evaluation = await this.evaluateDeliverable(task, subtask);
 
       if (evaluation.approved) {
+        // ✅ FIX: on-chain payment now happens here — after evaluation
+        // approved the work — instead of unconditionally at submission time.
+        try {
+          const settleTx = await onChainService.settleSubtask(task.onChainTaskId!, subtask.subtaskIndex);
+          task.txHashes[`settle-${subtask.subtaskIndex}`] = settleTx;
+        } catch (chainErr) {
+          this.log(task, "warning", `On-chain settlement failed for subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
+        }
+
         subtask.status = "settled";
         subtask.settledAt = new Date().toISOString();
         await agentRegistry.recordCompletion(subtask.assignedAgent!.id, subtask.budget);
@@ -512,6 +551,17 @@ IMPORTANT FORMATTING RULES:
           txHash: task.txHashes[`settle-${subtask.subtaskIndex}`],
         });
       } else {
+        // ✅ FIX: actually call disputeSubtask on-chain so the reserved
+        // budget is freed (and later refunded via completeTask) instead of
+        // just being labeled "disputed" off-chain while still reserved
+        // on-chain with the agent never having been paid OR the requester
+        // ever getting it back.
+        try {
+          await onChainService.disputeSubtask(task.onChainTaskId!, subtask.subtaskIndex);
+        } catch (chainErr) {
+          this.log(task, "warning", `On-chain dispute failed for subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
+        }
+
         subtask.status = "disputed";
         await agentRegistry.recordDispute(subtask.assignedAgent!.id);
         await taskStore.set(task);

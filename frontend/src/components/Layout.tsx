@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from "react-router-dom";
-import { LayoutDashboard, Bot, Zap, Wallet } from "lucide-react";
+import { LayoutDashboard, Bot, Wallet } from "lucide-react";
 import { useMyStats } from "../hooks/usemystats";
 import { useAccount } from "wagmi";
 import WalletButton from "./wallet/WalletButton";
@@ -77,10 +77,13 @@ export default function Layout() {
       <div className="layout-main">
         <header className="layout-header">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 28, height: 28, background: "var(--arc)", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Zap size={14} color="#000" fill="#000" />
-            </div>
-            {/* ✅ REBRANDED */}
+            <img
+              src="/icon-192.png"
+              alt="ForgeOps AI"
+              width={28}
+              height={28}
+              style={{ display: "block", flexShrink: 0, borderRadius: 6 }}
+            />
             <span style={{ fontWeight: 800, fontSize: "0.9rem", color: "var(--text-primary)" }}>ForgeOps AI</span>
           </div>
           <WalletButton />
