@@ -39,6 +39,11 @@ const CreateTaskSchema = z.object({
   description: z.string().min(10).max(2000),
   budget: z.number().int().min(100_000).max(100_000_000),
   requesterAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "Invalid address"),
+  // Present when the requester's own wallet already funded the task
+  // on-chain (real USDC, real transaction) — see useWallet.ts's
+  // createTaskOnChain flow on the frontend.
+  onChainTaskId: z.string().optional(),
+  createTaskTxHash: z.string().optional(),
 });
 
 // ✅ PROTECTED: Requires valid SIWE signature

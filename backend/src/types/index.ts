@@ -81,6 +81,7 @@ export interface Task {
   createdAt: string;
   completedAt?: string;
   error?: string;
+  userFunded?: boolean; // true when the requester's own wallet paid on-chain
 }
 
 // ─── Orchestration Types ──────────────────────────────────────────────────────

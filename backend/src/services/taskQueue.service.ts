@@ -37,9 +37,12 @@ export async function queueTaskCreation(params: {
   description: string;
   budget: number;
   requesterAddress: string;
+  onChainTaskId?: string;
+  createTaskTxHash?: string;
 }) {
   const taskId = randomUUID();
-  
+  const userFunded = !!(params.onChainTaskId && params.createTaskTxHash);
+
   const initialTask = {
     id: taskId,
     requesterAddress: params.requesterAddress.toLowerCase(),
@@ -52,10 +55,14 @@ export async function queueTaskCreation(params: {
       {
         timestamp: new Date().toISOString(),
         level: "info" as const,
-        message: "Task received and queued for background processing",
+        message: userFunded
+          ? "Task received — on-chain payment confirmed, queued for processing"
+          : "Task received and queued for background processing",
       }
     ],
-    txHashes: {},
+    txHashes: (userFunded ? { createTask: params.createTaskTxHash as string } : {}) as Record<string, string>,
+    onChainTaskId: params.onChainTaskId,
+    userFunded,
     createdAt: new Date().toISOString(),
   };
 

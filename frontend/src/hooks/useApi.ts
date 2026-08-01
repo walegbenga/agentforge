@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useAccount, useSignMessage } from "wagmi";
+import { useAccount, useSignMessage, useWriteContract, usePublicClient } from "wagmi";
+import { decodeEventLog } from "viem";
 import type { Task, AgentProfile, WSEvent } from "../types";
+import { CONTRACTS, USDC_ABI, ESCROW_ABI, arcTestnet } from "../config/wagmi";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://localhost:3001/ws`;
@@ -40,6 +42,8 @@ export function useTasks() {
   const [loading, setLoading] = useState(true);
   const { address, chainId } = useAccount();
   const { signMessageAsync } = useSignMessage();
+  const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient({ chainId: arcTestnet.id });
 
   const load = useCallback(async () => {
     // ✅ FIX: If no address, clear data and stop. Do NOT fetch global tasks.
@@ -63,21 +67,94 @@ export function useTasks() {
 
   useEffect(() => { load(); }, [load]);
 
-  const createTask = useCallback(async (params: { description: string; budget: number }) => {
+  /**
+   * Real payment flow: the user's own wallet pays USDC into escrow.
+   * Steps (each is a separate wallet prompt, reported via onProgress):
+   *   1. approve() — only if current allowance is insufficient
+   *   2. createTask() on the escrow contract — this is the actual transfer
+   *   3. register the resulting on-chain task with the backend (SIWE-signed
+   *      for identity, not payment — the payment already happened above)
+   *
+   * Previously this only signed an off-chain SIWE message, so no USDC ever
+   * actually left the user's wallet — the backend's own operator wallet was
+   * silently funding every task instead.
+   */
+  const createTask = useCallback(async (
+    params: { description: string; budget: number },
+    onProgress?: (step: "approving" | "locking" | "confirming" | "registering") => void
+  ) => {
     if (!address || !chainId) throw new Error("Wallet not connected or invalid network");
+    if (!publicClient) throw new Error("No RPC connection available");
 
+    const budget = BigInt(params.budget);
+
+    const allowance = (await publicClient.readContract({
+      address: CONTRACTS.USDC,
+      abi: USDC_ABI,
+      functionName: "allowance",
+      args: [address, CONTRACTS.OrchestratorEscrow],
+    })) as bigint;
+
+    if (allowance < budget) {
+      onProgress?.("approving");
+      const approveHash = await writeContractAsync({
+        address: CONTRACTS.USDC,
+        abi: USDC_ABI,
+        functionName: "approve",
+        args: [CONTRACTS.OrchestratorEscrow, budget],
+        chainId: arcTestnet.id,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+    }
+
+    onProgress?.("locking");
+    const createHash = await writeContractAsync({
+      address: CONTRACTS.OrchestratorEscrow,
+      abi: ESCROW_ABI,
+      functionName: "createTask",
+      args: [params.description, budget],
+      chainId: arcTestnet.id,
+    });
+
+    onProgress?.("confirming");
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
+
+    let onChainTaskId: string | null = null;
+    for (const log of receipt.logs) {
+      try {
+        const decoded = decodeEventLog({ abi: ESCROW_ABI, data: log.data, topics: log.topics });
+        if (decoded.eventName === "TaskCreated") {
+          onChainTaskId = (decoded.args as { taskId: bigint }).taskId.toString();
+          break;
+        }
+      } catch {
+        // not the event we're looking for, ignore
+      }
+    }
+    if (!onChainTaskId) {
+      throw new Error("Budget was locked on-chain, but the task ID couldn't be read back from the transaction. Check the explorer and contact support before retrying — do not resubmit blindly.");
+    }
+
+    onProgress?.("registering");
     const message = createSiweMessage(address, "Create a new task", chainId);
     const signature = await signMessageAsync({ message });
 
     const task = await apiFetch<Task>("/tasks", {
       method: "POST",
-      body: JSON.stringify({ ...params, requesterAddress: address, message, signature }),
+      body: JSON.stringify({
+        ...params,
+        requesterAddress: address,
+        message,
+        signature,
+        onChainTaskId,
+        createTaskTxHash: createHash,
+      }),
     });
-    
+
     // Prepend the new task to the list immediately for snappy UI
     setTasks((prev) => [task, ...prev]);
     return task;
-  }, [address, chainId, signMessageAsync]);
+  }, [address, chainId, signMessageAsync, writeContractAsync, publicClient]);
 
   const updateTask = useCallback((updated: Task) => {
     setTasks((prev) => prev.map((t) => t.id === updated.id ? { ...t, ...updated } : t));

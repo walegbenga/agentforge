@@ -1,6 +1,25 @@
 import { getDefaultConfig } from "@rainbow-me/rainbowkit";
 import { defineChain } from "viem";
 
+// ── RPC Proxy ──────────────────────────────────────────────────────────────
+// The real Arc RPC URL (with its Alchemy API key) now lives only in the
+// backend's environment (ARC_RPC_URL) and is proxied via /rpc — see
+// backend/src/routes/rpc.routes.ts. It used to be hardcoded directly here,
+// which meant the key shipped in the public JS bundle for anyone to pull
+// out of devtools.
+//
+// This has to resolve to an ABSOLUTE url (not "/rpc") because MetaMask
+// itself — not just our own app's fetch calls — talks to this URL directly
+// once a chain is added via wallet_addEthereumChain, and a relative path
+// means nothing outside our own app's origin.
+const RAW_API_BASE = import.meta.env.VITE_API_URL || "/api";
+const API_ORIGIN = /^https?:\/\//i.test(RAW_API_BASE)
+  ? RAW_API_BASE.replace(/\/api\/?$/, "")
+  : typeof window !== "undefined"
+    ? window.location.origin
+    : "";
+export const RPC_PROXY_URL = `${API_ORIGIN}/rpc`;
+
 // ── Arc Testnet Chain Definition ──────────────────────────────────────────────
 
 export const arcTestnet = defineChain({
@@ -12,14 +31,13 @@ export const arcTestnet = defineChain({
     decimals: 6,
   },
   rpcUrls: {
-    
-    default: { http: ["https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"] },
-    public: { http: ["https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"] },
+    default: { http: [RPC_PROXY_URL] },
+    public: { http: [RPC_PROXY_URL] },
   },
   blockExplorers: {
     default: {
       name: "Arc Explorer",
-      url: "https://testnet.arcscan.app/",
+      url: "https://explorer.testnet.arc.network",
     },
   },
   testnet: true,
@@ -29,15 +47,15 @@ export const arcTestnet = defineChain({
 
 export const CONTRACTS = {
   USDC: "0x3600000000000000000000000000000000000000" as `0x${string}`,
-  AgentCapabilityRegistry: "" as `0x${string}`, // loaded from addresses.json at runtime
-  OrchestratorEscrow: "" as `0x${string}`,
+  AgentCapabilityRegistry: "0xc749a117C3222Fee7a000161c01756EEFb027981" as `0x${string}`,
+  OrchestratorEscrow: "0x4ca8EdA765c2d768d0b0FDe277bf2b973989246c" as `0x${string}`,
 };
 
 // ── Wagmi Config ──────────────────────────────────────────────────────────────
 
 export const wagmiConfig = getDefaultConfig({
-  appName: "AgentForge",
-  projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "agentforge-hackathon",
+  appName: "ForgeOps AI",
+  projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "forgeops-hackathon",
   chains: [arcTestnet],
   ssr: false,
 });
@@ -84,5 +102,14 @@ export const ESCROW_ABI = [
       { name: "budget", type: "uint256" },
     ],
     outputs: [{ name: "taskId", type: "uint256" }],
+  },
+  {
+    name: "TaskCreated",
+    type: "event",
+    inputs: [
+      { name: "taskId", type: "uint256", indexed: true },
+      { name: "requester", type: "address", indexed: true },
+      { name: "budget", type: "uint256", indexed: false },
+    ],
   },
 ] as const;

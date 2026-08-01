@@ -7,10 +7,7 @@ import {
 } from "wagmi";
 import { arcTestnet, CONTRACTS, USDC_ABI } from "../config/wagmi";
 
-// Load escrow address from env
-const ESCROW_ADDRESS = (
-  import.meta.env.VITE_ESCROW_ADDRESS || ""
-) as `0x${string}`;
+const ESCROW_ADDRESS = CONTRACTS.OrchestratorEscrow;
 
 export type ApprovalState =
   | "idle"

@@ -23,6 +23,11 @@ export class OrchestrationEngine {
     budget: number;
     requesterAddress: string;
     taskId?: string;
+    // ✅ NEW: when the requester's own wallet already called createTask()
+    // on the escrow contract (real USDC, real transaction, real fee),
+    // the frontend passes the resulting on-chain task ID + tx hash here.
+    onChainTaskId?: string;
+    createTaskTxHash?: string;
   }): Promise<Task> {
     const taskId = params.taskId || randomUUID();
 
@@ -44,6 +49,12 @@ export class OrchestrationEngine {
       txHashes: {},
       createdAt: new Date().toISOString(),
     };
+
+    if (params.onChainTaskId && params.createTaskTxHash) {
+      task.onChainTaskId = params.onChainTaskId;
+      task.txHashes["createTask"] = params.createTaskTxHash;
+      task.userFunded = true;
+    }
 
     await taskStore.set(task);
 
@@ -211,7 +222,47 @@ export class OrchestrationEngine {
   }
 
   private async createOnChainTask(task: Task): Promise<void> {
-    this.log(task, "info", "Creating on-chain task and locking USDC in escrow...");
+    if (task.userFunded && task.onChainTaskId) {
+      // The requester's own wallet already paid for this — verify it on
+      // -chain rather than trusting the frontend's word for it, then move
+      // on. No operator funds are spent here.
+      this.log(task, "info", `Verifying user-funded task #${task.onChainTaskId} on-chain...`);
+      try {
+        const onChain = await onChainService.getOnChainTask(task.onChainTaskId);
+
+        if (onChain.requester.toLowerCase() !== task.requesterAddress.toLowerCase()) {
+          throw new Error("On-chain requester does not match task requester");
+        }
+        if (onChain.totalBudget !== BigInt(task.totalBudget)) {
+          throw new Error(
+            `On-chain budget (${onChain.totalBudget}) does not match submitted budget (${task.totalBudget})`
+          );
+        }
+        if (onChain.status !== 0 /* TaskStatus.Active */) {
+          throw new Error(`On-chain task is not active (status=${onChain.status})`);
+        }
+
+        this.log(task, "success", `✓ Verified: requester funded $${(task.totalBudget / 1_000_000).toFixed(2)} USDC in escrow (2% platform fee applies at settlement)`, {
+          txHash: task.txHashes["createTask"],
+        });
+        return;
+      } catch (err) {
+        // A task that claims to be user-funded but fails verification is
+        // rejected outright — we do NOT silently fall back to spending the
+        // operator wallet for a task someone else may not have actually paid for.
+        task.status = "failed";
+        task.error = `On-chain verification failed: ${(err as Error).message}`;
+        this.log(task, "error", task.error);
+        throw err;
+      }
+    }
+
+    // Fallback: no on-chain proof of payment was supplied (e.g. a caller
+    // hitting the API directly rather than through the wallet-pay UI flow).
+    // This subsidizes the task from the operator wallet — fine for a demo/
+    // dev environment, but this is the "$5 never gets deducted" behavior
+    // and should not be relied on in production.
+    this.log(task, "warning", "No on-chain payment proof provided — funding from operator wallet (subsidized/demo mode)");
     try {
       const approveTx = await onChainService.approveEscrow({ amount: task.totalBudget });
       task.txHashes["approve"] = approveTx;

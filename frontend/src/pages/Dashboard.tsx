@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [description, setDescription] = useState("");
   const [budget, setBudget] = useState(5);
   const [submitting, setSubmitting] = useState(false);
+  const [submitStep, setSubmitStep] = useState<"" | "approving" | "locking" | "confirming" | "registering">("");
   const [error, setError] = useState("");
 
   const [events, setEvents] = useState<Array<WSEvent & { id: string }>>([]);
@@ -57,18 +58,23 @@ export default function Dashboard() {
     }
 
     setSubmitting(true);
+    setSubmitStep("approving");
     setError("");
 
     try {
-      const result = await createTask({
-        description: description.trim(),
-        budget: Math.floor(budget * 1_000_000),
-      });
+      const result = await createTask(
+        {
+          description: description.trim(),
+          budget: Math.floor(budget * 1_000_000),
+        },
+        (step) => setSubmitStep(step)
+      );
       navigate(`/tasks/${result.id}`);
     } catch (err: any) {
       setError(err.message || "Failed to create task");
     } finally {
       setSubmitting(false);
+      setSubmitStep("");
     }
   };
 
@@ -264,7 +270,12 @@ export default function Dashboard() {
                 >
                   {submitting ? (
                     <>
-                      <span className="animate-spin">⟳</span> Submitting...
+                      <span className="animate-spin">⟳</span>
+                      {submitStep === "approving" && "Approving USDC in wallet…"}
+                      {submitStep === "locking" && "Locking budget in escrow…"}
+                      {submitStep === "confirming" && "Confirming on-chain…"}
+                      {submitStep === "registering" && "Finalizing…"}
+                      {!submitStep && "Submitting..."}
                     </>
                   ) : (
                     <>
@@ -272,6 +283,9 @@ export default function Dashboard() {
                     </>
                   )}
                 </button>
+                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 8, textAlign: "center" }}>
+                  This will prompt your wallet {submitting ? "" : "up to twice "}— once to approve USDC, once to lock the budget in escrow.
+                </div>
               </form>
             )}
           </div>

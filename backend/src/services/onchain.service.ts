@@ -119,6 +119,32 @@ export class OnChainService {
     return hash;
   }
 
+  /**
+   * Reads a task directly from the escrow contract. Used to verify a task
+   * that the REQUESTER funded themselves (their own wallet called
+   * createTask() and paid the USDC) before we trust it and start spending
+   * agent time on it — never take the frontend's word for it.
+   */
+  async getOnChainTask(taskId: string): Promise<{
+    requester: `0x${string}`;
+    description: string;
+    totalBudget: bigint;
+    status: number;
+  }> {
+    const result: any = await this.publicClient.readContract({
+      address: addresses.contracts.OrchestratorEscrow as `0x${string}`,
+      abi: ESCROW_ABI,
+      functionName: "getTask",
+      args: [BigInt(taskId)],
+    });
+    return {
+      requester: result.requester,
+      description: result.description,
+      totalBudget: BigInt(result.totalBudget),
+      status: Number(result.status),
+    };
+  }
+
   // ✅ FIXED: Return type is now { taskId: string; txHash: string }
   async createTask(params: { description: string; budget: number }): Promise<{ taskId: string; txHash: string }> {
     const hash = await this.getWalletClient().writeContract({

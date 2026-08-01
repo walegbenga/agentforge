@@ -15,7 +15,7 @@ async function addArcTestnetToMetaMask() {
     // First try switching
     await ethereum.request({
       method: "wallet_switchEthereumChain",
-      params: [{ chainId: "0x4CE152" }], // 2911 in hex
+      params: [{ chainId: "0x4CEF52" }], // 5042002 in hex — was "0x4CE152" (5038418), a typo that matched neither the old comment's claimed 2911 nor the real chain ID used everywhere else in this app
     });
     return true;
   } catch (switchError: any) {
@@ -26,14 +26,14 @@ async function addArcTestnetToMetaMask() {
           method: "wallet_addEthereumChain",
           params: [
             {
-              chainId: "0x4CE152",
+              chainId: "0x4CEF52",
               chainName: "Arc Testnet",
               nativeCurrency: {
                 name: "USDC",
                 symbol: "USDC",
                 decimals: 6,
               },
-              rpcUrls: ["https://arc-testnet.g.alchemy.com/v2/alch_cojzcvLgQaWVcCE2BWXpp"],
+              rpcUrls: [arcTestnet.rpcUrls.default.http[0]],
               blockExplorerUrls: ["https://explorer.testnet.arc.network"],
             },
           ],
