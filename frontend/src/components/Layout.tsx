@@ -29,9 +29,13 @@ export default function Layout() {
       <aside className="layout-sidebar">
         <div style={{ padding: "24px 20px 20px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, background: "var(--arc)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--arc-glow)" }}>
-              <Zap size={18} color="#000" fill="#000" />
-            </div>
+            <img
+              src="/icon-192.png"
+              alt="ForgeOps AI"
+              width={32}
+              height={32}
+              style={{ display: "block", flexShrink: 0 }}
+            />
             <div>
               {/* ✅ REBRANDED */}
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "1rem", color: "var(--text-primary)", letterSpacing: "-0.02em" }}>
