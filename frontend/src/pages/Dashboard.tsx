@@ -5,6 +5,8 @@ import { Plus, ChevronRight, Clock, CheckCircle, XCircle, Zap, Wallet, AlertCirc
 import { useTasks, useWebSocket } from "../hooks/useApi";
 import type { WSEvent } from "../types";
 import { useCallback } from "react";
+import LiveFeed from "../components/dashboard/LiveFeed";
+import TaskReplay from "../components/dashboard/TaskReplay";
 
 export default function Dashboard() {
   const { address, isConnected } = useAccount();
@@ -17,6 +19,8 @@ export default function Dashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const [events, setEvents] = useState<Array<WSEvent & { id: string }>>([]);
+
   useWebSocket(
     useCallback(
       (event: WSEvent) => {
@@ -24,6 +28,14 @@ export default function Dashboard() {
         if (event.type === "task:created" || event.type === "task:updated") {
           refresh();
         }
+        // Surface every event in the live feed, not just the two that
+        // trigger a refresh — this is what shows agents actually working
+        // (hiring, executing, submitting, getting paid) instead of a
+        // black box that just says "processing."
+        setEvents((prev) => [
+          { ...event, id: `${event.type}-${event.timestamp}-${Math.random().toString(36).slice(2, 7)}` },
+          ...prev,
+        ].slice(0, 50));
       },
       [address, refresh]
     )
@@ -177,13 +189,10 @@ export default function Dashboard() {
             {!isConnected ? (
               // Wallet-gate up front: explain what's needed before the user
               // invests effort filling out a form they can't submit.
-              <div style={{ textAlign: "center", padding: "24px 8px" }}>
-                <Wallet size={28} color="var(--text-muted)" style={{ opacity: 0.6, marginBottom: 10 }} />
-                <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: 4 }}>
+              <div style={{ textAlign: "center", padding: "16px 8px" }}>
+                <Wallet size={22} color="var(--text-muted)" style={{ opacity: 0.6, marginBottom: 8 }} />
+                <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
                   Connect your wallet to submit a task
-                </div>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                  Task budgets are locked in USDC escrow on Arc testnet.
                 </div>
               </div>
             ) : (
@@ -266,6 +275,23 @@ export default function Dashboard() {
               </form>
             )}
           </div>
+        </div>
+
+        {/* Live Activity — connected users see their own real-time feed;
+            disconnected visitors see a replay of a real completed task
+            instead of an empty "waiting for events" box */}
+        <div style={{ marginTop: 24 }}>
+          <div
+            style={{
+              fontWeight: 700,
+              fontSize: "0.95rem",
+              color: "var(--text-primary)",
+              marginBottom: 14,
+            }}
+          >
+            {isConnected ? "Live Activity" : "See It In Action"}
+          </div>
+          {isConnected ? <LiveFeed events={events} /> : <TaskReplay />}
         </div>
       </div>
     </div>

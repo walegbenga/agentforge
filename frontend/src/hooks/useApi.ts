@@ -122,6 +122,38 @@ export function useRegisterAgent() {
   return { register };
 }
 
+export function useDemoTask() {
+  const [task, setTask] = useState<Task | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // No address query param = public "all tasks" endpoint (see backend
+        // GET /tasks). Used to find a real completed task to replay for
+        // visitors who haven't connected a wallet yet.
+        const tasks = await apiFetch<Task[]>("/tasks");
+        const completed = tasks
+          .filter((t) => t.status === "completed" && t.subtasks?.length > 0 && t.orchestrationLog?.length > 0)
+          .sort(
+            (a, b) =>
+              new Date(b.completedAt || b.createdAt).getTime() -
+              new Date(a.completedAt || a.createdAt).getTime()
+          );
+        if (!cancelled) setTask(completed[0] || null);
+      } catch (err) {
+        console.error("Failed to load demo task:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return { task, loading };
+}
+
 export function useTask(taskId: string | null) {
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(false);
