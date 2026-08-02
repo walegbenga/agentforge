@@ -8,6 +8,7 @@ const DEFAULT_CAPABILITIES: AgentCapability[] = [
   "summarization",
   "planning",
   "app-builder",
+  "code-review",
 ];
 
 class AgentRegistryService {
@@ -82,6 +83,21 @@ class AgentRegistryService {
     });
 
     if (existing) {
+      // Self-heal: an agent created before a capability was added to
+      // DEFAULT_CAPABILITIES (e.g. app-builder, code-review) would
+      // otherwise be frozen forever at whatever it had at creation time —
+      // meaning every subtask needing that capability gets stuck "pending"
+      // with no agent able to claim it, indefinitely. Merge in anything
+      // missing instead.
+      const missing = DEFAULT_CAPABILITIES.filter((c) => !existing.capabilities.includes(c));
+      if (missing.length > 0) {
+        const updated = await prisma.agent.update({
+          where: { walletAddress: normalizedAddress },
+          data: { capabilities: [...existing.capabilities, ...missing] },
+        });
+        console.log(`🔧 Backfilled capabilities [${missing.join(", ")}] for ${existing.name}`);
+        return dbAgentToProfile(updated);
+      }
       return dbAgentToProfile(existing);
     }
 

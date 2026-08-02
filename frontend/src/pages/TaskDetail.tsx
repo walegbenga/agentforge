@@ -1,9 +1,9 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { useReactToPrint } from "react-to-print";
 import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap, Wallet, FileText, FileCode, FileType } from "lucide-react";
-import { useTask, useWebSocket } from "../hooks/useApi";
+import { useTask, useWebSocket, useClaimSubtask } from "../hooks/useApi";
 import type { Subtask, WSEvent, SubtaskStatus, LogEntry } from "../types";
 
 // ✅ NEW: Rich rendering + exports
@@ -174,7 +174,7 @@ export default function TaskDetail() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {task.subtasks.map((subtask, i) => (
-                <SubtaskCard key={subtask.id} subtask={subtask} index={i} />
+                <SubtaskCard key={subtask.id} subtask={subtask} index={i} taskId={task.id} onClaimed={refresh} />
               ))}
             </div>
           )}
@@ -202,18 +202,38 @@ export default function TaskDetail() {
       </div>
 
       {/* Hidden report — react-to-print clones this exact node into a print
-          iframe when handlePrint() runs, regardless of its own display:none */}
-      <div style={{ display: "none" }}>
+          iframe when handlePrint() runs. Off-screen positioning, NOT
+          display:none — display:none is a well-documented cause of blank
+          react-to-print output, since the browser never computes layout
+          for a display:none subtree, unlike an off-screen-but-visible one. */}
+      <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", top: 0, overflow: "hidden" }}>
         <TaskReportPrintable ref={reportRef} task={task} />
       </div>
     </div>
   );
 }
 
-function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
+function SubtaskCard({ subtask, index, taskId, onClaimed }: { subtask: Subtask; index: number; taskId: string; onClaimed: () => void }) {
   const cfg = SUBTASK_STATUS[subtask.status];
   const budgetUSDC = (subtask.budget / 1_000_000).toFixed(4);
   const isActive = ["executing", "assigned"].includes(subtask.status);
+  const { isConnected } = useAccount();
+  const { claim } = useClaimSubtask();
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState("");
+
+  const handleClaim = async () => {
+    setClaiming(true);
+    setClaimError("");
+    try {
+      await claim(taskId, subtask.subtaskIndex);
+      onClaimed();
+    } catch (err: any) {
+      setClaimError(err.message || "Failed to claim subtask");
+    } finally {
+      setClaiming(false);
+    }
+  };
 
   return (
     <div
@@ -240,6 +260,30 @@ function SubtaskCard({ subtask, index }: { subtask: Subtask; index: number }) {
       <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 10, lineHeight: 1.5 }}>
         {subtask.description}
       </p>
+
+      {subtask.status === "pending" && !subtask.assignedAgent && (
+        <div style={{
+          padding: "8px 10px",
+          background: "var(--bg)",
+          borderRadius: "var(--radius)",
+          border: "1px solid var(--border)",
+        }}>
+          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: 8 }}>
+            No registered agent has the "{subtask.capability}" capability yet — this needs someone to claim it.
+          </div>
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: "0.72rem", padding: "6px 12px" }}
+            onClick={handleClaim}
+            disabled={!isConnected || claiming}
+          >
+            {claiming ? "Claiming..." : isConnected ? "Claim this subtask" : "Connect wallet to claim"}
+          </button>
+          {claimError && (
+            <div style={{ fontSize: "0.7rem", color: "var(--red)", marginTop: 6 }}>{claimError}</div>
+          )}
+        </div>
+      )}
 
       {subtask.assignedAgent && (
         <div style={{
