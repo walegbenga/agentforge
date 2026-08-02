@@ -253,6 +253,11 @@ function SubtaskCard({ subtask, index, taskId, onClaimed }: { subtask: Subtask; 
             {cfg.label}
           </span>
           <span className="badge badge-muted" style={{ fontSize: "0.65rem" }}>{subtask.capability}</span>
+          {subtask.retryCount ? (
+            <span className="badge badge-yellow" style={{ fontSize: "0.65rem" }}>
+              retry {subtask.retryCount}
+            </span>
+          ) : null}
         </div>
         <span className="badge badge-usdc">${budgetUSDC}</span>
       </div>
@@ -317,12 +322,38 @@ function SubtaskCard({ subtask, index, taskId, onClaimed }: { subtask: Subtask; 
         </div>
       )}
 
+      {subtask.status === "disputed" && subtask.disputeReason && (
+        <div style={{
+          marginTop: 8, padding: "8px 10px",
+          background: "var(--red-dim)",
+          border: "1px solid rgba(255,77,106,0.2)",
+          borderRadius: "var(--radius)",
+          fontSize: "0.75rem", color: "var(--red)", lineHeight: 1.5,
+        }}>
+          <strong>Why this was rejected:</strong> {subtask.disputeReason}
+        </div>
+      )}
+      {subtask.error && (
+        <div style={{
+          marginTop: 8, padding: "8px 10px",
+          background: "var(--red-dim)",
+          border: "1px solid rgba(255,77,106,0.2)",
+          borderRadius: "var(--radius)",
+          fontSize: "0.75rem", color: "var(--red)", lineHeight: 1.5,
+        }}>
+          <strong>Execution failed:</strong> {subtask.error}
+        </div>
+      )}
+
       {/* App-builder deliverables render as a real file tree; everything
-          else falls back to the original rich-markdown rendering. */}
-      {subtask.deliverable && subtask.status === "settled" && (
+          else falls back to the original rich-markdown rendering. Shown
+          for settled work AND disputed work — the requester paid for this
+          agent's time either way and should be able to see what they got,
+          not just when it happened to be approved. */}
+      {subtask.deliverable && (subtask.status === "settled" || subtask.status === "disputed") && (
         <details style={{ marginTop: 10 }}>
           <summary style={{ fontSize: "0.75rem", color: "var(--text-secondary)", cursor: "pointer", userSelect: "none" }}>
-            View Deliverable
+            {subtask.status === "disputed" ? "View Rejected Submission" : "View Deliverable"}
           </summary>
           <div style={{
             marginTop: 8, padding: 12,

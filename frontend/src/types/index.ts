@@ -35,6 +35,10 @@ export interface Subtask {
   assignedAt?: string;
   submittedAt?: string;
   settledAt?: string;
+  error?: string;
+  disputeReason?: string;
+  retryOf?: number;
+  retryCount?: number;
 }
 
 export interface LogEntry {

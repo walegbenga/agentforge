@@ -116,11 +116,12 @@ class AgentRegistryService {
     return dbAgentToProfile(agent);
   }
 
-  async getBestAgent(capability: AgentCapability): Promise<AgentProfile | null> {
+  async getBestAgent(capability: AgentCapability, excludeAgentId?: string): Promise<AgentProfile | null> {
     const agents = await prisma.agent.findMany({
       where: {
         active: true,
         capabilities: { has: capability },
+        ...(excludeAgentId ? { id: { not: excludeAgentId } } : {}),
       },
       orderBy: [{ reputationScore: "desc" }, { pricePerTask: "asc" }],
     });

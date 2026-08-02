@@ -124,13 +124,7 @@ export class OrchestrationEngine {
     this.emit(task, "task:updated", { status: "executing" });
     await taskStore.set(task);
 
-    await this.executeSubtask(task, subtask);
-
-    task.status = "evaluating";
-    this.emit(task, "task:updated", { status: "evaluating" });
-    await taskStore.set(task);
-
-    await this.evaluateAndSettle(task);
+    await this.processSubtask(task, subtask);
     await this.finalizeTask(task);
 
     return (await taskStore.get(taskId))!;
@@ -239,8 +233,6 @@ export class OrchestrationEngine {
     task.status = "evaluating";
     this.emit(task, "task:updated", { status: "evaluating" });
     await taskStore.set(task);
-
-    await this.evaluateAndSettle(task);
 
     await this.finalizeTask(task);
   }
@@ -449,7 +441,154 @@ Rules:
       this.log(task, "info", "No subtasks ready for execution");
       return;
     }
-    await Promise.all(readySubtasks.map((s) => this.executeSubtask(task, s)));
+    await Promise.all(readySubtasks.map((s) => this.processSubtask(task, s)));
+  }
+
+  private static readonly MAX_RETRIES = 2;
+
+  /**
+   * Runs one subtask end-to-end: execute → evaluate → settle or dispute.
+   * On dispute, automatically spawns a retry (preferring a different agent
+   * than the one who failed) up to MAX_RETRIES, so one bad attempt doesn't
+   * permanently sink a task when a fresh try might succeed.
+   */
+  private async processSubtask(task: Task, subtask: Subtask): Promise<void> {
+    await this.executeSubtask(task, subtask);
+
+    if (subtask.status === "disputed") {
+      // Execution itself failed (e.g. the LLM call errored) before any
+      // deliverable existed to evaluate — still retry-eligible.
+      await this.maybeRetry(task, subtask);
+      return;
+    }
+    if (subtask.status !== "submitted") return;
+
+    const evaluation = await this.evaluateDeliverable(task, subtask);
+
+    if (evaluation.approved) {
+      try {
+        const settleTx = await onChainService.settleSubtask(task.onChainTaskId!, subtask.subtaskIndex);
+        task.txHashes[`settle-${subtask.subtaskIndex}`] = settleTx;
+      } catch (chainErr) {
+        this.log(task, "warning", `On-chain settlement failed for subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
+      }
+
+      subtask.status = "settled";
+      subtask.settledAt = new Date().toISOString();
+      await agentRegistry.recordCompletion(subtask.assignedAgent!.id, subtask.budget);
+      await taskStore.set(task);
+
+      this.log(task, "success", `✓ ${subtask.assignedAgent!.name} settled — score ${evaluation.score}/100`, {
+        payout: subtask.budget / 1_000_000,
+      });
+      this.emit(task, "subtask:settled", {
+        subtaskIndex: subtask.subtaskIndex,
+        agentName: subtask.assignedAgent!.name,
+        score: evaluation.score,
+        payout: subtask.budget,
+        txHash: task.txHashes[`settle-${subtask.subtaskIndex}`],
+      });
+      return;
+    }
+
+    // Rejected — dispute on-chain (frees the reserved budget), persist why,
+    // then decide whether a retry is warranted.
+    try {
+      await onChainService.disputeSubtask(task.onChainTaskId!, subtask.subtaskIndex);
+    } catch (chainErr) {
+      this.log(task, "warning", `On-chain dispute failed for subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
+    }
+
+    subtask.status = "disputed";
+    subtask.disputeReason = evaluation.feedback;
+    task.allocatedBudget = Math.max(0, task.allocatedBudget - subtask.budget);
+    await agentRegistry.recordDispute(subtask.assignedAgent!.id);
+    await taskStore.set(task);
+
+    this.log(task, "warning", `✗ ${subtask.assignedAgent!.name} disputed — ${evaluation.feedback}`);
+    this.emit(task, "subtask:disputed", {
+      subtaskIndex: subtask.subtaskIndex,
+      reason: evaluation.feedback,
+    });
+
+    await this.maybeRetry(task, subtask);
+  }
+
+  private async maybeRetry(task: Task, subtask: Subtask): Promise<void> {
+    const retryCount = subtask.retryCount ?? 0;
+    if (retryCount >= OrchestrationEngine.MAX_RETRIES) {
+      this.log(task, "info", `Subtask ${subtask.subtaskIndex} exhausted retries (${OrchestrationEngine.MAX_RETRIES}) — leaving as disputed.`);
+      return;
+    }
+
+    const retry = await this.spawnRetry(task, subtask);
+    if (retry) {
+      await this.processSubtask(task, retry);
+    } else {
+      this.log(task, "warning", `No agent available to retry subtask ${subtask.subtaskIndex} (${subtask.capability}) — leaving as disputed.`);
+    }
+  }
+
+  /**
+   * Creates a new subtask attempt for a disputed one, preferring an agent
+   * OTHER than the one who just failed (falls back to the same agent only
+   * if no alternate exists). Reuses the budget freed by the dispute — the
+   * on-chain allocatedBudget was decremented by disputeSubtask(), so
+   * re-reserving the same amount for the retry stays within totalBudget.
+   */
+  private async spawnRetry(task: Task, original: Subtask): Promise<Subtask | null> {
+    const failedAgentId = original.assignedAgent?.id;
+    let agent = failedAgentId ? await agentRegistry.getBestAgent(original.capability, failedAgentId) : null;
+    if (!agent) agent = original.assignedAgent ?? await agentRegistry.getBestAgent(original.capability);
+    if (!agent) return null;
+
+    const newIndex = Math.max(...task.subtasks.map((s) => s.subtaskIndex)) + 1;
+    const retryCount = (original.retryCount ?? 0) + 1;
+
+    const retrySubtask: Subtask = {
+      id: randomUUID(),
+      taskId: task.id,
+      subtaskIndex: newIndex,
+      description: `${original.description} [retry ${retryCount}/${OrchestrationEngine.MAX_RETRIES} — previous attempt disputed]`,
+      capability: original.capability,
+      assignedAgent: agent,
+      budget: original.budget,
+      status: "assigned",
+      assignedAt: new Date().toISOString(),
+      retryOf: original.subtaskIndex,
+      retryCount,
+    };
+
+    task.subtasks.push(retrySubtask);
+    task.allocatedBudget += retrySubtask.budget;
+    await taskStore.set(task);
+
+    this.log(task, "info", `Retrying subtask ${original.subtaskIndex} with ${agent.name} (attempt ${retryCount + 1}/${OrchestrationEngine.MAX_RETRIES + 1})`);
+
+    try {
+      const txHash = await onChainService.assignSubtask({
+        taskId: task.onChainTaskId!,
+        agentWallet: agent.walletAddress as `0x${string}`,
+        capability: original.capability,
+        budget: retrySubtask.budget,
+        description: retrySubtask.description,
+      });
+      retrySubtask.onChainSubtaskIndex = newIndex;
+      task.txHashes[`assign-${newIndex}`] = txHash;
+      await taskStore.set(task);
+    } catch (chainErr) {
+      this.log(task, "warning", `On-chain assignment failed for retry subtask ${newIndex}: ${(chainErr as Error).message}`);
+    }
+
+    this.emit(task, "subtask:assigned", {
+      subtaskIndex: newIndex,
+      agentName: agent.name,
+      capability: original.capability,
+      budget: retrySubtask.budget,
+      status: "assigned",
+    });
+
+    return retrySubtask;
   }
 
   private async executeSubtask(task: Task, subtask: Subtask): Promise<void> {
@@ -530,6 +669,7 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
     } catch (err) {
       subtask.status = "disputed";
       subtask.error = (err as Error).message;
+      task.allocatedBudget = Math.max(0, task.allocatedBudget - subtask.budget);
       await taskStore.set(task);
       this.log(task, "error", `${agent.name} failed: ${(err as Error).message}`);
 
@@ -537,61 +677,6 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
         await onChainService.disputeSubtask(task.onChainTaskId!, subtask.subtaskIndex);
       } catch (chainErr) {
         this.log(task, "warning", `Could not free on-chain budget for failed subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
-      }
-    }
-  }
-
-  private async evaluateAndSettle(task: Task): Promise<void> {
-    for (const subtask of task.subtasks) {
-      if (subtask.status !== "submitted") continue;
-      const evaluation = await this.evaluateDeliverable(task, subtask);
-
-      if (evaluation.approved) {
-        // ✅ FIX: on-chain payment now happens here — after evaluation
-        // approved the work — instead of unconditionally at submission time.
-        try {
-          const settleTx = await onChainService.settleSubtask(task.onChainTaskId!, subtask.subtaskIndex);
-          task.txHashes[`settle-${subtask.subtaskIndex}`] = settleTx;
-        } catch (chainErr) {
-          this.log(task, "warning", `On-chain settlement failed for subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
-        }
-
-        subtask.status = "settled";
-        subtask.settledAt = new Date().toISOString();
-        await agentRegistry.recordCompletion(subtask.assignedAgent!.id, subtask.budget);
-        await taskStore.set(task);
-
-        this.log(task, "success", `✓ ${subtask.assignedAgent!.name} settled — score ${evaluation.score}/100`, {
-          payout: subtask.budget / 1_000_000,
-        });
-        this.emit(task, "subtask:settled", {
-          subtaskIndex: subtask.subtaskIndex,
-          agentName: subtask.assignedAgent!.name,
-          score: evaluation.score,
-          payout: subtask.budget,
-          txHash: task.txHashes[`settle-${subtask.subtaskIndex}`],
-        });
-      } else {
-        // ✅ FIX: actually call disputeSubtask on-chain so the reserved
-        // budget is freed (and later refunded via completeTask) instead of
-        // just being labeled "disputed" off-chain while still reserved
-        // on-chain with the agent never having been paid OR the requester
-        // ever getting it back.
-        try {
-          await onChainService.disputeSubtask(task.onChainTaskId!, subtask.subtaskIndex);
-        } catch (chainErr) {
-          this.log(task, "warning", `On-chain dispute failed for subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
-        }
-
-        subtask.status = "disputed";
-        await agentRegistry.recordDispute(subtask.assignedAgent!.id);
-        await taskStore.set(task);
-
-        this.log(task, "warning", `✗ ${subtask.assignedAgent!.name} disputed — ${evaluation.feedback}`);
-        this.emit(task, "subtask:disputed", {
-          subtaskIndex: subtask.subtaskIndex,
-          reason: evaluation.feedback,
-        });
       }
     }
   }
