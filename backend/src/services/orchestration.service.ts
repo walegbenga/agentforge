@@ -467,7 +467,7 @@ Rules:
 
     if (evaluation.approved) {
       try {
-        const settleTx = await onChainService.settleSubtask(task.onChainTaskId!, subtask.subtaskIndex);
+        const settleTx = await onChainService.settleSubtask(task.onChainTaskId!, subtask.onChainSubtaskIndex ?? subtask.subtaskIndex);
         task.txHashes[`settle-${subtask.subtaskIndex}`] = settleTx;
       } catch (chainErr) {
         this.log(task, "warning", `On-chain settlement failed for subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
@@ -494,7 +494,7 @@ Rules:
     // Rejected — dispute on-chain (frees the reserved budget), persist why,
     // then decide whether a retry is warranted.
     try {
-      await onChainService.disputeSubtask(task.onChainTaskId!, subtask.subtaskIndex);
+      await onChainService.disputeSubtask(task.onChainTaskId!, subtask.onChainSubtaskIndex ?? subtask.subtaskIndex);
     } catch (chainErr) {
       this.log(task, "warning", `On-chain dispute failed for subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
     }
@@ -542,8 +542,16 @@ Rules:
     if (!agent) agent = original.assignedAgent ?? await agentRegistry.getBestAgent(original.capability);
     if (!agent) return null;
 
-    const newIndex = Math.max(...task.subtasks.map((s) => s.subtaskIndex)) + 1;
     const retryCount = (original.retryCount ?? 0) + 1;
+
+    // Deterministic, collision-free index — NOT Math.max(...task.subtasks)+1.
+    // Multiple subtasks can dispute and retry concurrently (executeSubtasks
+    // runs them in parallel), so two retries firing near-simultaneously
+    // could both read the same max before either had pushed, computing the
+    // same "next" index. This scheme only depends on values already fixed
+    // at this point (the original's own index, which never changes, and
+    // this retry's own count), so no two retries can ever collide.
+    const newIndex = (original.retryOf ?? original.subtaskIndex) * 1000 + retryCount;
 
     const retrySubtask: Subtask = {
       id: randomUUID(),
@@ -566,6 +574,15 @@ Rules:
     this.log(task, "info", `Retrying subtask ${original.subtaskIndex} with ${agent.name} (attempt ${retryCount + 1}/${OrchestrationEngine.MAX_RETRIES + 1})`);
 
     try {
+      // The contract auto-increments its own internal subtaskCount on every
+      // assignSubtask() call — it does NOT take an index parameter. So the
+      // on-chain index is whatever the contract's running count is, which
+      // is NOT the same as our off-chain newIndex (that's a deliberately
+      // collision-free bookkeeping scheme, unrelated to the contract's
+      // sequential counter). Track it as "how many subtasks for this task
+      // have already been successfully assigned on-chain."
+      const onChainIndex = task.subtasks.filter((s) => s.onChainSubtaskIndex !== undefined).length;
+
       const txHash = await onChainService.assignSubtask({
         taskId: task.onChainTaskId!,
         agentWallet: agent.walletAddress as `0x${string}`,
@@ -573,7 +590,7 @@ Rules:
         budget: retrySubtask.budget,
         description: retrySubtask.description,
       });
-      retrySubtask.onChainSubtaskIndex = newIndex;
+      retrySubtask.onChainSubtaskIndex = onChainIndex;
       task.txHashes[`assign-${newIndex}`] = txHash;
       await taskStore.set(task);
     } catch (chainErr) {
@@ -674,7 +691,7 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
       this.log(task, "error", `${agent.name} failed: ${(err as Error).message}`);
 
       try {
-        await onChainService.disputeSubtask(task.onChainTaskId!, subtask.subtaskIndex);
+        await onChainService.disputeSubtask(task.onChainTaskId!, subtask.onChainSubtaskIndex ?? subtask.subtaskIndex);
       } catch (chainErr) {
         this.log(task, "warning", `Could not free on-chain budget for failed subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
       }
