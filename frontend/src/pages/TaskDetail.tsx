@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useAccount } from "wagmi";
-import { useReactToPrint } from "react-to-print";
+import { renderToStaticMarkup } from "react-dom/server";
 import { ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, Zap, Wallet, FileText, FileCode, FileType } from "lucide-react";
 import { useTask, useWebSocket, useClaimSubtask } from "../hooks/useApi";
 import type { Subtask, WSEvent, SubtaskStatus, LogEntry } from "../types";
@@ -41,20 +41,45 @@ export default function TaskDetail() {
     }, [taskId, refresh])
   );
 
-  // ✅ Print/PDF export: uses the browser's native print engine via
-  // react-to-print instead of screenshotting the page, so the output is
-  // real selectable text with correct page breaks, not a rasterized image.
-  const reportRef = useRef<HTMLDivElement>(null);
-  const handlePrint = useReactToPrint({
-    contentRef: reportRef,
-    documentTitle: () => (task ? getSafeFilename(task.description, "").replace(/\.$/, "") : "forgeops_task"),
-    pageStyle: `
+  // ✅ PDF export: renders the report to a real HTML string and opens it in
+  // a genuine new window, then calls that window's own print(). This
+  // avoids react-to-print's hidden-iframe + DOM-cloning mechanism, which
+  // proved unreliable (blank output) across multiple attempts — this
+  // pattern is simpler and directly inspectable (you can see the exact
+  // HTML in the new tab before it ever hits the print dialog).
+  const handlePrint = () => {
+    if (!task) return;
+
+    const reportHtml = renderToStaticMarkup(<TaskReportPrintable task={task} />);
+    const filename = getSafeFilename(task.description, "").replace(/\.$/, "") || "forgeops_task";
+
+    const printWindow = window.open("", "_blank", "width=900,height=1000");
+    if (!printWindow) {
+      alert("Your browser blocked the print window. Please allow popups for this site and try again.");
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${filename}</title>
+    <style>
       @page { margin: 0.6in; }
-      @media print {
-        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      }
-    `,
-  });
+      * { box-sizing: border-box; }
+      body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    </style>
+  </head>
+  <body>${reportHtml}</body>
+</html>`);
+    printWindow.document.close();
+
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
+  };
 
   // ✅ NEW: Wallet connection guard
   if (!isConnected) {
@@ -199,15 +224,6 @@ export default function TaskDetail() {
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Hidden report — react-to-print clones this exact node into a print
-          iframe when handlePrint() runs. Off-screen positioning, NOT
-          display:none — display:none is a well-documented cause of blank
-          react-to-print output, since the browser never computes layout
-          for a display:none subtree, unlike an off-screen-but-visible one. */}
-      <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", top: 0, overflow: "hidden" }}>
-        <TaskReportPrintable ref={reportRef} task={task} />
       </div>
     </div>
   );

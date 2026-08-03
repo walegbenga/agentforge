@@ -1,4 +1,3 @@
-import { forwardRef } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Task, Subtask, SubtaskStatus } from "../../types";
 import { parseFileDeliverable } from "../../utils/fileDeliverable";
@@ -215,7 +214,7 @@ interface Props {
   task: Task;
 }
 
-const TaskReportPrintable = forwardRef<HTMLDivElement, Props>(({ task }, ref) => {
+function TaskReportPrintable({ task }: Props) {
   const settledCount = task.subtasks.filter((s) => s.status === "settled").length;
   const disputedCount = task.subtasks.filter((s) => s.status === "disputed").length;
   const paidOut = task.subtasks
@@ -224,7 +223,6 @@ const TaskReportPrintable = forwardRef<HTMLDivElement, Props>(({ task }, ref) =>
 
   return (
     <div
-      ref={ref}
       style={{
         width: "7.5in",
         padding: "0.25in 0",
@@ -308,7 +306,6 @@ const TaskReportPrintable = forwardRef<HTMLDivElement, Props>(({ task }, ref) =>
       </div>
     </div>
   );
-});
+}
 
-TaskReportPrintable.displayName = "TaskReportPrintable";
 export default TaskReportPrintable;

@@ -65,12 +65,13 @@ export class OrchestrationEngine {
       budget: params.budget,
     });
 
-    this.runOrchestration(task).catch((err) => {
+    this.runOrchestration(task).catch(async (err) => {
       task.status = "failed";
       task.error = err.message;
       this.log(task, "error", `Orchestration failed: ${err.message}`);
       this.emit(task, "task:updated", { status: "failed", error: err.message });
-      taskStore.set(task).catch(console.error);
+      await taskStore.set(task).catch(console.error);
+      await this.refundOnFailure(task);
     });
 
     return task;
@@ -137,6 +138,26 @@ export class OrchestrationEngine {
    * its subtasks started out unassigned and was claimed well after the
    * rest of the task had already settled or disputed.
    */
+  /**
+   * A failure anywhere in the pipeline (LLM provider out of quota, network
+   * error, anything) previously left escrowed USDC permanently stuck —
+   * nothing ever called completeTask() unless execution reached the normal
+   * end of the happy path. This is the fallback: attempt a refund
+   * regardless of where or why it failed. completeTask() correctly
+   * refunds the FULL budget if zero subtasks were ever allocated (e.g. a
+   * decomposition-time failure), or whatever's left over otherwise.
+   */
+  private async refundOnFailure(task: Task): Promise<void> {
+    if (!task.onChainTaskId) return;
+    try {
+      await onChainService.completeTask(task.onChainTaskId);
+      this.log(task, "success", "On-chain: escrowed budget refunded to requester after failure");
+    } catch (chainErr) {
+      this.log(task, "error", `Could not auto-refund after failure: ${(chainErr as Error).message}. Manual intervention needed for on-chain task ${task.onChainTaskId}.`);
+    }
+    await taskStore.set(task).catch(console.error);
+  }
+
   private async finalizeTask(task: Task): Promise<void> {
     const allResolved = task.subtasks.every((s) => s.status === "settled" || s.status === "disputed");
 
@@ -463,7 +484,34 @@ Rules:
     }
     if (subtask.status !== "submitted") return;
 
-    const evaluation = await this.evaluateDeliverable(task, subtask);
+    let evaluation: EvaluationResult;
+    try {
+      evaluation = await this.evaluateDeliverable(task, subtask);
+    } catch (err) {
+      // ✅ FIX: this call was completely unguarded — an LLM provider error
+      // here (rate limit, quota exhausted, outage) used to propagate all
+      // the way up uncaught. For the top-level task creation path that at
+      // least got caught and marked "failed" (now also refunded — see
+      // refundOnFailure). But for a single subtask mid-task, the correct
+      // response isn't "abort and refund the whole task" — sibling
+      // subtasks may still be legitimately in progress. Treat it exactly
+      // like an execution failure: dispute this one subtask, free its
+      // budget, let it retry.
+      subtask.status = "disputed";
+      subtask.disputeReason = `Evaluation failed: ${(err as Error).message}`;
+      task.allocatedBudget = Math.max(0, task.allocatedBudget - subtask.budget);
+      await taskStore.set(task);
+      this.log(task, "error", `Evaluation failed for subtask ${subtask.subtaskIndex}: ${(err as Error).message}`);
+
+      try {
+        await onChainService.disputeSubtask(task.onChainTaskId!, subtask.onChainSubtaskIndex ?? subtask.subtaskIndex);
+      } catch (chainErr) {
+        this.log(task, "warning", `Could not free on-chain budget after evaluation failure: ${(chainErr as Error).message}`);
+      }
+
+      await this.maybeRetry(task, subtask);
+      return;
+    }
 
     if (evaluation.approved) {
       try {
