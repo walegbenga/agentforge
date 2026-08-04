@@ -13,6 +13,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { downloadTaskDOCX, downloadTaskCode, hasCodeBlocks, getSafeFilename } from "../utils/exports";
 import { parseFileDeliverable } from "../utils/fileDeliverable";
 import TaskReportPrintable from "../components/dashboard/TaskReportPrintable";
+import PipelineStepper from "../components/dashboard/PipelineStepper";
 
 const ARC_EXPLORER = "https://explorer.testnet.arc.network";
 
@@ -128,6 +129,8 @@ export default function TaskDetail() {
       <button className="btn btn-ghost" onClick={() => navigate("/")} style={{ marginBottom: 20, fontSize: "0.8rem" }}>
         <ArrowLeft size={14} /> Dashboard
       </button>
+
+      <PipelineStepper task={task} />
 
       {/* Header */}
       <div className="card" style={{ marginBottom: 20 }}>

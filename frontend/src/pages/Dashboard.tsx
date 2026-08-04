@@ -93,12 +93,10 @@ export default function Dashboard() {
             marginBottom: 6,
           }}
         >
-          {/* ✅ REBRANDED */}
-          Welcome to ForgeOps AI
+          Turn Any Idea Into a Working App
         </h1>
-        {/* ✅ REBRANDED */}
         <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-          Multi-agent automation platform. Submit a task, let specialized AI agents collaborate, and get real results.
+          Specialized AI agents plan, build, and review real software — collaboratively, autonomously, and settled on-chain.
         </p>
       </div>
 

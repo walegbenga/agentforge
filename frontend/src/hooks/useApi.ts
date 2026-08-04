@@ -218,7 +218,15 @@ export function useDemoTask() {
               new Date(b.completedAt || b.createdAt).getTime() -
               new Date(a.completedAt || a.createdAt).getTime()
           );
-        if (!cancelled) setTask(completed[0] || null);
+
+        // Prefer a task that actually shows the app-build pipeline
+        // (planning → app-builder → code-review) over just "whatever
+        // finished most recently" — a visitor deciding whether this
+        // product is real should see the thing that differentiates it,
+        // not a coin-flip between that and a plain research task. Still
+        // 100% real, already-completed data either way.
+        const showcasesAppBuild = completed.find((t) => t.subtasks.some((s) => s.capability === "app-builder"));
+        if (!cancelled) setTask(showcasesAppBuild || completed[0] || null);
       } catch (err) {
         console.error("Failed to load demo task:", err);
       } finally {
