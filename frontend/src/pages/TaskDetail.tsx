@@ -75,10 +75,22 @@ export default function TaskDetail() {
 </html>`);
     printWindow.document.close();
 
-    printWindow.onload = () => {
+    // Force the title again right before printing — some browsers pick the
+    // suggested "Save as PDF" filename from document.title at the moment
+    // print() is called, not from the <title> tag at write time, and
+    // relying only on the onload event after document.write() is known to
+    // be unreliable (the load event can fire before this handler attaches).
+    const triggerPrint = () => {
+      printWindow.document.title = filename;
       printWindow.focus();
       printWindow.print();
     };
+
+    if (printWindow.document.readyState === "complete") {
+      setTimeout(triggerPrint, 100);
+    } else {
+      printWindow.onload = () => setTimeout(triggerPrint, 100);
+    }
   };
 
   // ✅ NEW: Wallet connection guard

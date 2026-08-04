@@ -41,7 +41,7 @@ function DeliverableBody({ markdown }: { markdown: string }) {
                   borderRadius: 4,
                   padding: "10px 12px",
                   fontFamily: "'Courier New', Courier, monospace",
-                  fontSize: "10.5px",
+                  fontSize: "13.1px",
                   lineHeight: 1.5,
                   whiteSpace: "pre-wrap",
                   overflowWrap: "anywhere",
@@ -67,11 +67,11 @@ function DeliverableBody({ markdown }: { markdown: string }) {
             </code>
           );
         },
-        h1: ({ children }) => <h3 style={{ fontSize: 14, margin: "10px 0 4px", color: "#111" }}>{children}</h3>,
-        h2: ({ children }) => <h4 style={{ fontSize: 13, margin: "8px 0 4px", color: "#111" }}>{children}</h4>,
-        p: ({ children }) => <p style={{ margin: "0 0 8px", fontSize: 12, lineHeight: 1.6, color: "#1a1a1a" }}>{children}</p>,
-        ul: ({ children }) => <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 12, lineHeight: 1.6 }}>{children}</ul>,
-        ol: ({ children }) => <ol style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 12, lineHeight: 1.6 }}>{children}</ol>,
+        h1: ({ children }) => <h3 style={{ fontSize: 17.5, margin: "10px 0 4px", color: "#111" }}>{children}</h3>,
+        h2: ({ children }) => <h4 style={{ fontSize: 16.2, margin: "8px 0 4px", color: "#111" }}>{children}</h4>,
+        p: ({ children }) => <p style={{ margin: "0 0 8px", fontSize: 15, lineHeight: 1.6, color: "#1a1a1a" }}>{children}</p>,
+        ul: ({ children }) => <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 15, lineHeight: 1.6 }}>{children}</ul>,
+        ol: ({ children }) => <ol style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 15, lineHeight: 1.6 }}>{children}</ol>,
         li: ({ children }) => <li style={{ marginBottom: 3 }}>{children}</li>,
       }}
     >
@@ -86,8 +86,8 @@ function DeliverableBody({ markdown }: { markdown: string }) {
 function FileTreeBody({ intro, files }: { intro: string; files: { path: string; language: string; content: string }[] }) {
   return (
     <div>
-      {intro && <p style={{ fontSize: 12, lineHeight: 1.6, color: "#1a1a1a", margin: "0 0 10px" }}>{intro}</p>}
-      <div style={{ fontSize: 10.5, color: "#6b7280", marginBottom: 8, fontWeight: 700 }}>
+      {intro && <p style={{ fontSize: 15, lineHeight: 1.6, color: "#1a1a1a", margin: "0 0 10px" }}>{intro}</p>}
+      <div style={{ fontSize: 13.1, color: "#6b7280", marginBottom: 8, fontWeight: 700 }}>
         {files.length} file{files.length !== 1 ? "s" : ""} generated
       </div>
       {files.map((file) => (
@@ -97,7 +97,7 @@ function FileTreeBody({ intro, files }: { intro: string; files: { path: string; 
               breakInside: "avoid",
               pageBreakInside: "avoid",
               fontFamily: "'Courier New', Courier, monospace",
-              fontSize: 10.5,
+              fontSize: 13.1,
               fontWeight: 700,
               color: "#111",
               background: "#eef0f3",
@@ -116,7 +116,7 @@ function FileTreeBody({ intro, files }: { intro: string; files: { path: string; 
               borderRadius: "0 0 4px 4px",
               padding: "10px 12px",
               fontFamily: "'Courier New', Courier, monospace",
-              fontSize: "10px",
+              fontSize: "12.5px",
               lineHeight: 1.5,
               whiteSpace: "pre-wrap",
               overflowWrap: "anywhere",
@@ -139,12 +139,12 @@ function SubtaskSection({ subtask, index }: { subtask: Subtask; index: number })
     <div style={{ marginBottom: 26 }}>
       <div style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, color: "#111", margin: 0 }}>
+          <h2 style={{ fontSize: 18.8, fontWeight: 700, color: "#111", margin: 0 }}>
             Subtask {index + 1}
           </h2>
           <span
             style={{
-              fontSize: 10,
+              fontSize: 12.5,
               fontWeight: 700,
               letterSpacing: "0.04em",
               color: status.color,
@@ -156,8 +156,8 @@ function SubtaskSection({ subtask, index }: { subtask: Subtask; index: number })
             {status.label}
           </span>
         </div>
-        <p style={{ fontSize: 12.5, color: "#333", margin: "0 0 6px", lineHeight: 1.5 }}>{subtask.description}</p>
-        <div style={{ fontSize: 10.5, color: "#6b7280", marginBottom: 10 }}>
+        <p style={{ fontSize: 15.6, color: "#333", margin: "0 0 6px", lineHeight: 1.5 }}>{subtask.description}</p>
+        <div style={{ fontSize: 13.1, color: "#6b7280", marginBottom: 10 }}>
           Agent: {subtask.assignedAgent?.name || "Unassigned"} &nbsp;·&nbsp; Capability: {subtask.capability}
           &nbsp;·&nbsp; Budget: {formatUSDC(subtask.budget)}
           {subtask.settledAt && <>&nbsp;·&nbsp; Settled: {formatDate(subtask.settledAt)}</>}
@@ -173,7 +173,7 @@ function SubtaskSection({ subtask, index }: { subtask: Subtask; index: number })
             border: "1px solid #f3c9c5",
             borderRadius: 4,
             padding: "10px 12px",
-            fontSize: 12,
+            fontSize: 15,
             color: "#7a1f18",
             lineHeight: 1.5,
           }}
@@ -182,7 +182,7 @@ function SubtaskSection({ subtask, index }: { subtask: Subtask; index: number })
           {subtask.error && <div style={{ marginTop: 4 }}>Reason: {subtask.error}</div>}
           {subtask.deliverable && (
             <div style={{ marginTop: 8, color: "#1a1a1a" }}>
-              <div style={{ fontSize: 10.5, color: "#7a1f18", marginBottom: 4, fontWeight: 700 }}>
+              <div style={{ fontSize: 13.1, color: "#7a1f18", marginBottom: 4, fontWeight: 700 }}>
                 Submitted work (not approved):
               </div>
               {(() => {
@@ -202,7 +202,7 @@ function SubtaskSection({ subtask, index }: { subtask: Subtask; index: number })
             : <DeliverableBody markdown={subtask.deliverable} />;
         })()
       ) : (
-        <p style={{ fontSize: 12, fontStyle: "italic", color: "#9ca3af" }}>
+        <p style={{ fontSize: 15, fontStyle: "italic", color: "#9ca3af" }}>
           No deliverable yet — this subtask is still {subtask.status}.
         </p>
       )}
@@ -232,13 +232,13 @@ function TaskReportPrintable({ task }: Props) {
       }}
     >
       <div style={{ breakInside: "avoid", pageBreakInside: "avoid", marginBottom: 18 }}>
-        <div style={{ fontSize: 10, letterSpacing: "0.08em", color: "#6b7280", fontWeight: 700, marginBottom: 6 }}>
+        <div style={{ fontSize: 12.5, letterSpacing: "0.08em", color: "#6b7280", fontWeight: 700, marginBottom: 6 }}>
           FORGEOPS AI · TASK REPORT
         </div>
-        <h1 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 6px", color: "#0a0a0a", lineHeight: 1.3 }}>
+        <h1 style={{ fontSize: 25, fontWeight: 700, margin: "0 0 6px", color: "#0a0a0a", lineHeight: 1.3 }}>
           {task.description}
         </h1>
-        <div style={{ fontSize: 10.5, color: "#6b7280" }}>
+        <div style={{ fontSize: 13.1, color: "#6b7280" }}>
           Generated {formatDate(new Date().toISOString())}
           {task.onChainTaskId && <> &nbsp;·&nbsp; On-chain task #{task.onChainTaskId}</>}
           &nbsp;·&nbsp; Settled on Arc
@@ -270,10 +270,10 @@ function TaskReportPrintable({ task }: Props) {
               borderLeft: i > 0 ? "1px solid #e2e5ea" : "none",
             }}
           >
-            <div style={{ fontSize: 9.5, color: "#8a94a3", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>
+            <div style={{ fontSize: 11.9, color: "#8a94a3", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>
               {label}
             </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#111" }}>{value}</div>
+            <div style={{ fontSize: 18.8, fontWeight: 700, color: "#111" }}>{value}</div>
           </div>
         ))}
       </div>
@@ -283,7 +283,7 @@ function TaskReportPrintable({ task }: Props) {
           style={{
             breakInside: "avoid",
             pageBreakInside: "avoid",
-            fontSize: 11.5,
+            fontSize: 14.4,
             color: "#7a1f18",
             background: "#fceceb",
             border: "1px solid #f3c9c5",
@@ -301,7 +301,7 @@ function TaskReportPrintable({ task }: Props) {
         <SubtaskSection key={sub.id} subtask={sub} index={i} />
       ))}
 
-      <div style={{ marginTop: 30, paddingTop: 10, borderTop: "1px solid #e2e5ea", fontSize: 9.5, color: "#9ca3af" }}>
+      <div style={{ marginTop: 30, paddingTop: 10, borderTop: "1px solid #e2e5ea", fontSize: 11.9, color: "#9ca3af" }}>
         Generated by ForgeOps AI — Multi-Agent Automation Platform on Arc
       </div>
     </div>
