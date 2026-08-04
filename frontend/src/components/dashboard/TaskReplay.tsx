@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type { Task, WSEvent, WSEventType } from "../../types";
 import { useDemoTask } from "../../hooks/useApi";
 import LiveFeed from "./LiveFeed";
+import PipelineStepper from "./PipelineStepper";
 
 type ReplayEvent = WSEvent & { id: string };
 
@@ -110,7 +112,22 @@ export default function TaskReplay() {
       <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: 10, lineHeight: 1.5 }}>
         "{task.description}"
       </p>
+      <PipelineStepper task={task} compact />
       <LiveFeed events={visible} />
+      <Link
+        to={`/tasks/${task.id}`}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          marginTop: 10,
+          fontSize: "0.72rem",
+          color: "var(--arc)",
+          textDecoration: "none",
+        }}
+      >
+        View full task &amp; generated code →
+      </Link>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { Plus, ChevronRight, Clock, CheckCircle, XCircle, Zap, Wallet, AlertCircle, FileClock } from "lucide-react";
@@ -10,9 +10,25 @@ import TaskReplay from "../components/dashboard/TaskReplay";
 
 export default function Dashboard() {
   const { address, isConnected } = useAccount();
-  const { tasks, createTask, refresh } = useTasks(address);
+  const { tasks, loadingMore, hasMore, loadMore, createTask, refresh } = useTasks(address);
   //const createTask = useCreateTask();
   const navigate = useNavigate();
+
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!hasMore) return;
+    const el = loadMoreSentinelRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { rootMargin: "200px" } // start loading a bit before it's actually visible
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore]);
 
   const [description, setDescription] = useState("");
   const [budget, setBudget] = useState(5);
@@ -78,7 +94,7 @@ export default function Dashboard() {
     }
   };
 
-  const recentTasks = tasks.slice(0, 8);
+  const recentTasks = tasks;
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto" }}>
@@ -175,6 +191,17 @@ export default function Dashboard() {
               ))}
             </div>
           )}
+
+          {/* Infinite scroll: loading this sentinel into view fetches the
+              next page of tasks automatically, instead of a numbered
+              pager or fetching everything unbounded up front. */}
+          {hasMore && (
+            <div ref={loadMoreSentinelRef} style={{ padding: "16px 0", textAlign: "center" }}>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {loadingMore ? "Loading more..." : ""}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Create Task Form */}
@@ -207,10 +234,35 @@ export default function Dashboard() {
                     id="task-description"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="e.g., Analyze the top 10 DeFi protocols and write a 500-word research report..."
+                    placeholder="e.g., Build a simple to-do list app using vanilla JavaScript and localStorage"
                     disabled={submitting}
                     style={{ fontSize: "0.85rem" }}
                   />
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {[
+                      "Build a simple to-do list app using vanilla JavaScript and localStorage",
+                      "Build a Pomodoro timer web app with HTML, CSS, and JavaScript",
+                      "Research the top 5 DeFi protocols on Arc blockchain",
+                    ].map((example) => (
+                      <button
+                        key={example}
+                        type="button"
+                        onClick={() => setDescription(example)}
+                        disabled={submitting}
+                        style={{
+                          fontSize: "0.68rem",
+                          padding: "4px 10px",
+                          borderRadius: 999,
+                          border: "1px solid var(--border-bright)",
+                          background: "var(--bg-hover)",
+                          color: "var(--text-secondary)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {example.split(" ").slice(0, 5).join(" ")}...
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div style={{ marginBottom: 16 }}>

@@ -24,7 +24,7 @@ const STATE_STYLE: Record<StepState, { color: string; bg: string; icon: React.Re
  * task would misrepresent what happened. Every state shown here is derived
  * from real subtask data, not decorative.
  */
-export default function PipelineStepper({ task }: { task: Task }) {
+export default function PipelineStepper({ task, compact }: { task: Task; compact?: boolean }) {
   const planning = task.subtasks.find((s) => s.capability === "planning");
   const builder = task.subtasks.filter((s) => s.capability === "app-builder");
   const review = task.subtasks.find((s) => s.capability === "code-review");
@@ -56,20 +56,22 @@ export default function PipelineStepper({ task }: { task: Task }) {
   ];
 
   return (
-    <div className="card" style={{ marginBottom: 20, padding: "16px 20px" }}>
-      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>
-        Build Pipeline
-      </div>
+    <div className={compact ? undefined : "card"} style={{ marginBottom: compact ? 14 : 20, padding: compact ? 0 : "16px 20px" }}>
+      {!compact && (
+        <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>
+          Build Pipeline
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center" }}>
         {steps.map((step, i) => {
           const style = STATE_STYLE[step.state];
           return (
             <div key={step.label} style={{ display: "flex", alignItems: "center", flex: i < steps.length - 1 ? 1 : "none" }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 64 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: compact ? 46 : 64 }}>
                 <div
                   style={{
-                    width: 28,
-                    height: 28,
+                    width: compact ? 22 : 28,
+                    height: compact ? 22 : 28,
                     borderRadius: "50%",
                     background: style.bg,
                     color: style.color,
@@ -82,8 +84,8 @@ export default function PipelineStepper({ task }: { task: Task }) {
                   {style.icon}
                 </div>
                 <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-primary)" }}>{step.label}</div>
-                  <div style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>{step.sub}</div>
+                  <div style={{ fontSize: compact ? "0.62rem" : "0.72rem", fontWeight: 700, color: "var(--text-primary)" }}>{step.label}</div>
+                  {!compact && <div style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>{step.sub}</div>}
                 </div>
               </div>
               {i < steps.length - 1 && (
@@ -92,7 +94,7 @@ export default function PipelineStepper({ task }: { task: Task }) {
                     flex: 1,
                     height: 2,
                     background: step.state === "done" ? "var(--green)" : "var(--border)",
-                    margin: "0 4px 22px",
+                    margin: compact ? "0 2px 16px" : "0 4px 22px",
                   }}
                 />
               )}
