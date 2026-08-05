@@ -86,11 +86,12 @@ router.post("/tasks", verifySiwe, async (req: Request, res: Response) => {
 
 router.get("/tasks", async (req: Request, res: Response) => {
   try {
-    const { address } = req.query;
-    const tasks = address
-      ? await orchestrationEngine.getTasksByAddress(address as string)
-      : await orchestrationEngine.getAllTasks();
-    res.json({ success: true, data: tasks });
+    const { address, cursor } = req.query;
+    const limit = Math.min(parseInt(req.query.limit as string, 10) || 10, 50);
+    const result = address
+      ? await orchestrationEngine.getTasksByAddress(address as string, { limit, cursor: cursor as string | undefined })
+      : await orchestrationEngine.getAllTasks({ limit, cursor: cursor as string | undefined });
+    res.json({ success: true, data: result.tasks, nextCursor: result.nextCursor });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -195,21 +196,16 @@ router.post("/agents/connect", verifySiwe, async (req: Request, res: Response) =
 router.get("/stats", async (_req: Request, res: Response) => {
   try {
     const agents = await agentRegistry.getAll();
-    const tasks = await orchestrationEngine.getAllTasks();
+    const { totalTasks, completedTasks, totalVolume, pendingSubtasks } = await orchestrationEngine.getStatsAggregate();
 
     const totalEarned = agents.reduce((s: number, a: any) => s + a.totalEarned, 0);
     const totalJobsCompleted = agents.reduce((s: number, a: any) => s + a.jobsCompleted, 0);
-    const completedTasks = tasks.filter((t: any) => t.status === "completed").length;
-    const pendingSubtasks = tasks.reduce(
-      (s: number, t: any) => s + t.subtasks.filter((sub: any) => sub.status === "pending").length, 0
-    );
-    const totalVolume = tasks.reduce((s: number, t: any) => s + t.totalBudget, 0);
 
     res.json({
       success: true,
       data: {
         agents: agents.length,
-        tasks: tasks.length,
+        tasks: totalTasks,
         completedTasks,
         pendingSubtasks,
         totalVolume,

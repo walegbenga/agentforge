@@ -35,11 +35,21 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return json.data as T;
 }
 
+async function apiFetchPaginated<T>(path: string): Promise<{ data: T; nextCursor: string | null }> {
+  const res = await fetch(`${API_BASE}${path}`, { headers: { "Content-Type": "application/json" } });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || "API error");
+  return { data: json.data as T, nextCursor: json.nextCursor ?? null };
+}
+
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
 export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
   const { address, chainId } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const { writeContractAsync } = useWriteContract();
@@ -50,14 +60,21 @@ export function useTasks() {
     if (!address) {
       setTasks([]);
       setLoading(false);
+      setHasMore(false);
+      setCursor(null);
       return;
     }
 
     setLoading(true); // ✅ Show loading state while switching wallets
     try {
-      // ✅ FIX: ALWAYS enforce the address filter when connected
-      const data = await apiFetch<Task[]>(`/tasks?address=${address}`);
+      // ✅ Paginated: only the first page loads up front — the rest loads
+      // on scroll via loadMore(), instead of fetching every task (with
+      // full deliverable text, which can now be entire multi-file apps)
+      // unbounded on every dashboard visit.
+      const { data, nextCursor } = await apiFetchPaginated<Task[]>(`/tasks?address=${address}&limit=10`);
       setTasks(data);
+      setHasMore(!!nextCursor);
+      setCursor(nextCursor);
     } catch (err) {
       console.error(err);
     } finally {
@@ -66,6 +83,21 @@ export function useTasks() {
   }, [address]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadMore = useCallback(async () => {
+    if (!address || !cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const { data, nextCursor } = await apiFetchPaginated<Task[]>(`/tasks?address=${address}&limit=10&cursor=${cursor}`);
+      setTasks((prev) => [...prev, ...data]);
+      setHasMore(!!nextCursor);
+      setCursor(nextCursor);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [address, cursor, loadingMore]);
 
   /**
    * Real payment flow: the user's own wallet pays USDC into escrow.
@@ -160,7 +192,7 @@ export function useTasks() {
     setTasks((prev) => prev.map((t) => t.id === updated.id ? { ...t, ...updated } : t));
   }, []);
 
-  return { tasks, loading, createTask, updateTask, refresh: load };
+  return { tasks, loading, loadingMore, hasMore, loadMore, createTask, updateTask, refresh: load };
 }
 
 export function useClaimSubtask() {

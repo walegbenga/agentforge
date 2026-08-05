@@ -138,21 +138,57 @@ class TaskStoreService {
     return dbTask ? dbTaskToTask(dbTask) : undefined;
   }
 
-  async getAll(): Promise<Task[]> {
-    const tasks = await prisma.task.findMany({
+  async getAll(opts?: { limit?: number; cursor?: string }): Promise<{ tasks: Task[]; nextCursor: string | null }> {
+    const limit = Math.min(opts?.limit ?? 10, 50);
+    const rows = await prisma.task.findMany({
       include: { subtasks: { orderBy: { subtaskIndex: "asc" } } },
       orderBy: { createdAt: "desc" },
+      take: limit + 1, // fetch one extra to know whether there's a next page
+      ...(opts?.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
     });
-    return tasks.map(dbTaskToTask);
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return { tasks: page.map(dbTaskToTask), nextCursor: hasMore ? page[page.length - 1].id : null };
   }
 
-  async getByAddress(address: string): Promise<Task[]> {
-    const tasks = await prisma.task.findMany({
+  async getByAddress(address: string, opts?: { limit?: number; cursor?: string }): Promise<{ tasks: Task[]; nextCursor: string | null }> {
+    const limit = Math.min(opts?.limit ?? 10, 50);
+    const rows = await prisma.task.findMany({
       where: { requesterAddress: { equals: address, mode: "insensitive" } },
       include: { subtasks: { orderBy: { subtaskIndex: "asc" } } },
       orderBy: { createdAt: "desc" },
+      take: limit + 1,
+      ...(opts?.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
     });
-    return tasks.map(dbTaskToTask);
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return { tasks: page.map(dbTaskToTask), nextCursor: hasMore ? page[page.length - 1].id : null };
+  }
+
+  /**
+   * For the global /stats endpoint — needs totals across ALL tasks, not a
+   * paginated page of them. Uses DB-level count/sum instead of hydrating
+   * every task's full subtasks + deliverable text (which can now be entire
+   * multi-file apps) just to add up some numbers.
+   */
+  async getStatsAggregate(): Promise<{
+    totalTasks: number;
+    completedTasks: number;
+    totalVolume: number;
+    pendingSubtasks: number;
+  }> {
+    const [totalTasks, completedTasks, volumeAgg, pendingSubtasks] = await Promise.all([
+      prisma.task.count(),
+      prisma.task.count({ where: { status: "completed" } }),
+      prisma.task.aggregate({ _sum: { totalBudget: true } }),
+      prisma.subtask.count({ where: { status: "pending" } }),
+    ]);
+    return {
+      totalTasks,
+      completedTasks,
+      totalVolume: volumeAgg._sum.totalBudget ?? 0,
+      pendingSubtasks,
+    };
   }
 }
 

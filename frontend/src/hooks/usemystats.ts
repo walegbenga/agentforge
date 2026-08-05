@@ -17,12 +17,23 @@ export function useMyStats() {
   const { address } = useAccount();
 
   const load = useCallback(async () => {
-    if (!address) return;
+    if (!address) {
+      // ✅ FIX: previously this just returned early, leaving the PREVIOUS
+      // wallet's stats displayed indefinitely after disconnecting — this
+      // is exactly the "shows the last wallet's data" symptom.
+      setStats(null);
+      return;
+    }
     try {
-      const tasks = await apiFetch<any[]>(`/tasks?address=${address}`);
-      const completedTasks = tasks.filter((t: any) => t.status === "completed").length;
-      const totalVolume = tasks.reduce((s: number, t: any) => s + t.totalBudget, 0);
-      setStats({ completedTasks, totalVolume, totalTasks: tasks.length });
+      // ✅ FIX: was fetching /tasks?address=... and computing totals by
+      // counting the returned array — now that /tasks paginates (10 per
+      // page by default), that undercounted anyone with more than 10
+      // tasks. /stats/me already existed as a correct, non-paginated
+      // aggregate and was just never wired up here.
+      const data = await apiFetch<{ completedTasks: number; totalVolume: number; agents: number; jobsCompleted: number }>(
+        `/stats/me?address=${address}`
+      );
+      setStats({ completedTasks: data.completedTasks, totalVolume: data.totalVolume });
     } catch (err) {
       console.error("Failed to load stats", err);
     }

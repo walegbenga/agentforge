@@ -30,7 +30,7 @@ const SUBTASK_STATUS: Record<SubtaskStatus, { label: string; badge: string; icon
 export default function TaskDetail() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
-  const { isConnected } = useAccount(); // ✅ NEW: Wallet guard
+  const { isConnected, address } = useAccount(); // ✅ NEW: Wallet guard
   const { task, refresh } = useTask(taskId ?? null);
 
   useWebSocket(
@@ -131,6 +131,27 @@ export default function TaskDetail() {
       </button>
 
       <PipelineStepper task={task} />
+
+      {isConnected && address && task.requesterAddress.toLowerCase() !== address.toLowerCase() && (
+        <div
+          className="card"
+          style={{
+            marginBottom: 16,
+            padding: "10px 14px",
+            background: "var(--yellow-dim)",
+            border: "1px solid rgba(245,200,66,0.25)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: "0.78rem",
+            color: "var(--yellow)",
+          }}
+        >
+          <Wallet size={14} />
+          This task belongs to a different wallet ({task.requesterAddress.slice(0, 6)}...{task.requesterAddress.slice(-4)}) —
+          you're viewing it in read-only mode.
+        </div>
+      )}
 
       {/* Header */}
       <div className="card" style={{ marginBottom: 20 }}>

@@ -81,12 +81,16 @@ export class OrchestrationEngine {
     return await taskStore.get(taskId);
   }
 
-  async getAllTasks(): Promise<Task[]> {
-    return await taskStore.getAll();
+  async getAllTasks(opts?: { limit?: number; cursor?: string }): Promise<{ tasks: Task[]; nextCursor: string | null }> {
+    return await taskStore.getAll(opts);
   }
 
-  async getTasksByAddress(address: string): Promise<Task[]> {
-    return await taskStore.getByAddress(address.toLowerCase());
+  async getTasksByAddress(address: string, opts?: { limit?: number; cursor?: string }): Promise<{ tasks: Task[]; nextCursor: string | null }> {
+    return await taskStore.getByAddress(address.toLowerCase(), opts);
+  }
+
+  async getStatsAggregate() {
+    return await taskStore.getStatsAggregate();
   }
 
   async claimSubtask(taskId: string, subtaskIndex: number, walletAddress: string): Promise<Task> {
