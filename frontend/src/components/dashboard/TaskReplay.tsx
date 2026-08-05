@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { FileCode } from "lucide-react";
 import type { Task, WSEvent, WSEventType } from "../../types";
 import { useDemoTask } from "../../hooks/useApi";
 import LiveFeed from "./LiveFeed";
@@ -116,17 +117,22 @@ export default function TaskReplay() {
       <LiveFeed events={visible} />
       <Link
         to={`/tasks/${task.id}`}
+        className="btn btn-primary btn-full-mobile"
         style={{
-          display: "inline-flex",
+          display: "flex",
+          width: "100%",
+          justifyContent: "center",
           alignItems: "center",
-          gap: 4,
-          marginTop: 10,
-          fontSize: "0.72rem",
-          color: "var(--arc)",
+          gap: 6,
+          marginTop: 14,
+          padding: "11px 16px",
+          fontSize: "0.85rem",
+          fontWeight: 700,
           textDecoration: "none",
         }}
       >
-        View full task &amp; generated code →
+        <FileCode size={16} />
+        See the Full Task &amp; Generated Code
       </Link>
     </div>
   );
