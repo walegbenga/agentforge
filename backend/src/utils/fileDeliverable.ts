@@ -61,14 +61,18 @@ const MANIFEST_FILENAMES = /^(package\.json|requirements\.txt|go\.mod|cargo\.tom
  * cheaply and consistently — an LLM judge can be inconsistent about
  * whether "// TODO: implement" counts as disqualifying, a regex isn't.
  */
-export function runStructuralCheck(parsed: ParsedFileDeliverable): StructuralCheckResult {
+export function runStructuralCheck(
+  parsed: ParsedFileDeliverable,
+  opts?: { requireManifest?: boolean }
+): StructuralCheckResult {
+  const requireManifest = opts?.requireManifest ?? true;
   const issues: string[] = [];
 
   const hasReadme = parsed.files.some((f) => /readme(\.md)?$/i.test(f.path));
   const hasManifest = parsed.files.some((f) => MANIFEST_FILENAMES.test(f.path.split("/").pop() || ""));
 
-  if (!hasReadme) issues.push("No README with setup/run instructions");
-  if (!hasManifest) issues.push("No dependency manifest (package.json / requirements.txt / etc.)");
+  if (!hasReadme && requireManifest) issues.push("No README with setup/run instructions");
+  if (!hasManifest && requireManifest) issues.push("No dependency manifest (package.json / requirements.txt / etc.)");
 
   for (const file of parsed.files) {
     if (file.content.trim().length < 10) {
@@ -83,10 +87,12 @@ export function runStructuralCheck(parsed: ParsedFileDeliverable): StructuralChe
     }
   }
 
-  // Structural failure = missing manifest entirely, or any file is a stub.
-  // A missing README is a quality ding (fed to the LLM rubric) but not an
-  // automatic fail on its own — some tiny scripts genuinely don't need one.
-  const hardFailure = !hasManifest || issues.some((i) => i.includes("placeholder") || i.includes("empty"));
+  // Structural failure = missing manifest when required, or any file is a
+  // stub/empty. A missing README on the FIRST module is a quality ding but
+  // not an automatic fail on its own — a tiny script genuinely might not
+  // need one. Follow-on modules skip the manifest/README checks entirely
+  // via requireManifest=false, since a previous module already covers it.
+  const hardFailure = (requireManifest && !hasManifest) || issues.some((i) => i.includes("placeholder") || i.includes("empty"));
 
   return { passed: !hardFailure, issues, hasReadme, hasManifest };
 }
