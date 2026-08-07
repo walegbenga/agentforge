@@ -354,10 +354,11 @@ VALID CAPABILITIES: ${validCapabilities.join(", ")}
 
 PIPELINE GUIDANCE:
 - If the task asks to build, create, or code an app/website/tool/script (i.e. it wants working software as the output), use this pipeline instead of a single subtask:
-    1. "planning" — produce a concrete spec: features, tech stack, file structure
+    1. "planning" — produce a concrete spec: full feature set, tech stack, file structure
     2. "app-builder" — write the actual application: real, complete file contents (not snippets or pseudocode), following the spec
     3. "code-review" — review the app-builder's actual output for bugs, security issues, and missing pieces
   Do not use "code-review" as a substitute for "app-builder" — code-review's job is to critique existing code, not author a new application.
+- A single app-builder subtask has a limited output budget — enough for a handful of files, not an entire multi-feature product. If the planned feature set is more than a simple single-screen tool (e.g. a banking app with auth + transfers + bills + savings, not just a to-do list), split the build into 2-4 SEPARATE app-builder subtasks, one per feature module (e.g. "Core & Auth", "Transfers & Payments", "Savings & Bill Pay"). Each module subtask gets its own full output budget, and they run in sequence, each building on what the previous one produced — so scope each one to what's realistically buildable as a coherent chunk, not the whole app at once. For a genuinely simple single-purpose tool, one app-builder subtask is correct — don't split trivial tasks needlessly.
 - If the task is research, writing, analysis, or anything that isn't "produce working software," use whichever single capability fits best — don't force the build pipeline onto non-coding tasks.
 
 Return ONLY valid JSON (no markdown, no backticks):
@@ -423,6 +424,7 @@ Rules:
         budget: budgetMicro,
         status: agent ? "assigned" : "pending",
         assignedAt: agent ? new Date().toISOString() : undefined,
+        dependsOn: sub.dependsOn,
       };
 
       task.subtasks.push(subtask);
@@ -458,6 +460,39 @@ Rules:
         status: subtask.status,
       });
     }
+
+    // ✅ FIX: don't trust the LLM's own dependsOn output to correctly wire
+    // up the build pipeline — enforce the known relationship directly.
+    // Without this, app-builder never saw planning's actual spec and
+    // code-review never saw app-builder's actual code; each subtask only
+    // ever received the original one-line task description, so "code
+    // review" was really just guessing in the dark, and app-builder had no
+    // real spec to build a comprehensive feature set from.
+    const planningIdx = task.subtasks.find((s) => s.capability === "planning")?.subtaskIndex;
+    const builderIdxs = task.subtasks
+      .filter((s) => s.capability === "app-builder")
+      .map((s) => s.subtaskIndex)
+      .sort((a, b) => a - b);
+    const reviewIdx = task.subtasks.find((s) => s.capability === "code-review")?.subtaskIndex;
+
+    // Multiple app-builder subtasks = multiple feature modules. Chain them
+    // sequentially (each depends on planning AND the previous module), not
+    // parallel — module 2 needs to actually see what module 1 built to
+    // extend it coherently (shared nav/config/App entry point) instead of
+    // both independently inventing an incompatible project structure.
+    builderIdxs.forEach((idx, i) => {
+      const s = task.subtasks.find((s) => s.subtaskIndex === idx)!;
+      const deps = new Set(s.dependsOn || []);
+      if (planningIdx !== undefined) deps.add(planningIdx);
+      if (i > 0) deps.add(builderIdxs[i - 1]);
+      s.dependsOn = [...deps];
+    });
+
+    if (reviewIdx !== undefined && builderIdxs.length > 0) {
+      const reviewSubtask = task.subtasks.find((s) => s.subtaskIndex === reviewIdx)!;
+      reviewSubtask.dependsOn = [...new Set([...(reviewSubtask.dependsOn || []), ...builderIdxs])];
+    }
+    await taskStore.set(task);
   }
 
   private async executeSubtasks(task: Task): Promise<void> {
@@ -466,7 +501,38 @@ Rules:
       this.log(task, "info", "No subtasks ready for execution");
       return;
     }
-    await Promise.all(readySubtasks.map((s) => this.processSubtask(task, s)));
+
+    // ✅ FIX: previously every ready subtask fired in one Promise.all with
+    // no ordering — app-builder could start before planning had produced
+    // anything, code-review could start before app-builder had written a
+    // line of code. Now: run in dependency-respecting waves. A subtask
+    // only executes once everything in its dependsOn has resolved
+    // (settled or disputed), so app-builder actually waits for planning's
+    // real spec and code-review actually waits for app-builder's real code.
+    const remaining = new Set(readySubtasks.map((s) => s.subtaskIndex));
+    const isResolved = (idx: number) => {
+      const s = task.subtasks.find((s) => s.subtaskIndex === idx);
+      return !s || s.status === "settled" || s.status === "disputed";
+    };
+
+    while (remaining.size > 0) {
+      const wave = readySubtasks.filter(
+        (s) => remaining.has(s.subtaskIndex) && (s.dependsOn || []).every((d) => isResolved(d))
+      );
+
+      if (wave.length === 0) {
+        // Dependency deadlock (e.g. the dependency is stuck pending with
+        // no agent available) — run whatever's left rather than hang
+        // forever; it just won't have its dependency's context available.
+        const stuck = readySubtasks.filter((s) => remaining.has(s.subtaskIndex));
+        this.log(task, "warning", `${stuck.length} subtask(s) still waiting on an unresolved dependency — running anyway without that context.`);
+        await Promise.all(stuck.map((s) => { remaining.delete(s.subtaskIndex); return this.processSubtask(task, s); }));
+        break;
+      }
+
+      wave.forEach((s) => remaining.delete(s.subtaskIndex));
+      await Promise.all(wave.map((s) => this.processSubtask(task, s)));
+    }
   }
 
   private static readonly MAX_RETRIES = 2;
@@ -617,6 +683,7 @@ Rules:
       assignedAt: new Date().toISOString(),
       retryOf: original.subtaskIndex,
       retryCount,
+      dependsOn: original.dependsOn,
     };
 
     task.subtasks.push(retrySubtask);
@@ -675,6 +742,25 @@ Rules:
     });
 
     try {
+      const resolveLatestAttempt = (idx: number): Subtask | undefined => {
+        let current = task.subtasks.find((s) => s.subtaskIndex === idx);
+        // Walk forward through retries to find the final attempt for this
+        // line of work — code-review should see the code that actually
+        // settled, not a rejected first draft that got retried.
+        while (current?.status === "disputed") {
+          const retry = task.subtasks.find((s) => s.retryOf === current!.subtaskIndex);
+          if (!retry) break;
+          current = retry;
+        }
+        return current;
+      };
+
+      const dependencyContext = (subtask.dependsOn || [])
+        .map((idx) => resolveLatestAttempt(idx))
+        .filter((s): s is Subtask => !!s && !!s.deliverable)
+        .map((s) => `--- Output from "${s.capability}" (${s.description}) ---\n${s.deliverable}`)
+        .join("\n\n");
+
       const response = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         max_tokens: subtask.capability === "app-builder" ? 8000 : 4000,
@@ -688,7 +774,14 @@ IMPORTANT FORMATTING RULES:
 - You MUST output your deliverable using Markdown formatting.
 - Use # for main titles, ## for subtitles, and bullet points for lists.
 - If you are writing code, you MUST wrap it in code blocks with the language specified (e.g., \`\`\`javascript ... \`\`\` or \`\`\`solidity ... \`\`\`).
-- Do not just output a wall of text. Structure it professionally.${subtask.capability === "app-builder" ? `
+- Do not just output a wall of text. Structure it professionally.${["research", "fact-checking", "data-analysis"].includes(subtask.capability) ? `
+
+- Start with a one-line title (# heading).
+- Immediately follow with a "## Key Findings" section: 3-5 bullet points with the most important takeaways — someone should be able to read ONLY this section and get the substance.
+- Then the full body with proper ## subsections.
+- If you reference facts/data, end with a "## Sources" section listing what you drew from (even if general knowledge, name the domain, e.g. "Industry reporting on X as of your training data").` : ""}${["content-writing", "summarization"].includes(subtask.capability) ? `
+
+- Start with a one-line title (# heading) and a 1-2 sentence summary of what this delivers, before the full content.` : ""}${subtask.capability === "app-builder" ? `
 
 APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
 - Output the COMPLETE contents of every file needed to run the app. No placeholders, no "// rest of the code here", no truncation.
@@ -700,11 +793,17 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
 \`\`\`
 
 - Include every file needed: source files, package.json/requirements.txt, a README.md with setup + run instructions, and config files. A "working app" means someone can follow the README and actually run it.
-- Do not add commentary between files beyond the "### FILE:" heading — keep narrative explanation to a short intro before the first file.` : ""}`,
+- Do not add commentary between files beyond the "### FILE:" heading — keep narrative explanation to a short intro before the first file.
+- If a spec was provided below, build to that spec — implement the full feature set it describes, not just the minimum literally stated in the one-line task.
+- If output from a PREVIOUS app-builder module is provided below, you are EXTENDING that codebase, not starting fresh: reuse its existing files, package.json, and navigation/routing structure. Only re-output a file (with its same path) if you are actually modifying it — output that file's FULL updated contents, which will replace the previous version. Do not invent a second, incompatible project structure alongside it. Only include your own README.md if the previous module didn't already provide one.` : ""}${subtask.capability === "code-review" ? `
+
+- You will be given the actual code below. Review THAT specific code — cite real file names and real lines/functions. Do not give generic advice unconnected to what was actually submitted.` : ""}`,
           },
           {
             role: "user",
-            content: `TASK CONTEXT: ${task.description}\n\nYOUR SUBTASK: ${subtask.description}\n\nDeliver your work now. Be thorough, specific, and professionally formatted.`,
+            content: `TASK CONTEXT: ${task.description}\n\nYOUR SUBTASK: ${subtask.description}${
+              dependencyContext ? `\n\n${dependencyContext}` : ""
+            }\n\nDeliver your work now. Be thorough, specific, and professionally formatted.`,
           },
         ],
       });
@@ -806,7 +905,10 @@ Return ONLY valid JSON (no markdown):
       };
     }
 
-    const structural = runStructuralCheck(parsed);
+    const isFollowOnModule = (subtask.dependsOn || []).some(
+      (idx) => task.subtasks.find((s) => s.subtaskIndex === idx)?.capability === "app-builder"
+    );
+    const structural = runStructuralCheck(parsed, { requireManifest: !isFollowOnModule });
     if (!structural.passed) {
       return {
         approved: false,
@@ -881,7 +983,7 @@ Return ONLY valid JSON (no markdown):
       "fact-checking": "You are FactBot, verifying claims and ensuring factual accuracy with cited reasoning.",
       "math-reasoning": "You are MathBot, solving mathematical problems and quantitative challenges step-by-step.",
       "image-analysis": "You are VisionBot, analyzing and describing visual content in detail.",
-      planning: "You are PlannerBot, creating strategic, actionable plans and structured workflows.",
+      planning: "You are PlannerBot, creating strategic, actionable plans and structured workflows. When planning an app or product, don't just spec out the literal words in the request — think about what a genuinely competitive, complete version of that category of product needs. If asked to plan a banking app, a real one needs more than login and a balance screen: transfers, bill payments, airtime/data top-up, savings products, transaction history, statements. Name the full feature set a real competitor in that space would have, then let the build stage implement it.",
       "app-builder": "You are BuilderBot, a full-stack engineer who builds complete, working applications from an idea or spec — real file structure, real working code, ready to run.",
     };
 

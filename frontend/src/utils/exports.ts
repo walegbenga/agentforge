@@ -154,34 +154,41 @@ export const downloadTaskDOCX = async (task: Task): Promise<void> => {
 export const downloadTaskCode = (task: Task): void => {
   const taskNameBase = getSafeFilename(task.description, "").replace(/\.$/, "") || "forgeops_task";
 
-  // Real per-subtask files (from app-builder's "### FILE: path" format) get
-  // their real relative paths in the zip — an actual project structure,
-  // not a flat pile of numbered snippets.
+  // Multi-module app-builder tasks produce several subtasks that each
+  // extend the previous one's real files (see orchestration.service.ts's
+  // sequential module chaining). Resolve each retry lineage down to its
+  // final settled attempt — never include a rejected draft — then merge
+  // in execution order so a later module's version of a shared file
+  // correctly overwrites the earlier one, instead of siloing every
+  // subtask into its own disconnected folder.
+  const rootOf = (s: Subtask) => s.retryOf ?? s.subtaskIndex;
+  const rank = (s: Subtask) => (s.status === "settled" ? 2 : s.status === "disputed" ? 0 : 1) * 1000 + (s.retryCount ?? 0);
+
+  const finalByLineage = new Map<number, Subtask>();
+  for (const s of task.subtasks) {
+    if (!s.deliverable) continue;
+    const root = rootOf(s);
+    const existing = finalByLineage.get(root);
+    if (!existing || rank(s) > rank(existing)) finalByLineage.set(root, s);
+  }
+  const orderedFinals = [...finalByLineage.entries()].sort((a, b) => a[0] - b[0]).map(([, s]) => s);
+
   const realFiles: { path: string; content: string }[] = [];
   const looseCodeBlocks: { lang: string; code: string; subtaskIndex: number; description: string }[] = [];
 
-  task.subtasks.forEach((sub, index) => {
-    if (!sub.deliverable) return;
-    const parsed = parseFileDeliverable(sub.deliverable);
+  orderedFinals.forEach((sub) => {
+    const parsed = parseFileDeliverable(sub.deliverable!);
     if (parsed) {
-      const subtaskFolder = getSafeFilename(sub.description, "").replace(/\.$/, "") || `subtask_${index + 1}`;
-      parsed.files.forEach((file) => {
-        // Namespace by subtask when there's more than one app-builder
-        // subtask, so files from different subtasks don't collide.
-        const prefix = task.subtasks.filter((s) => s.deliverable && parseFileDeliverable(s.deliverable)).length > 1
-          ? `${subtaskFolder}/`
-          : "";
-        realFiles.push({ path: `${prefix}${file.path}`, content: file.content });
-      });
+      parsed.files.forEach((file) => realFiles.push({ path: file.path, content: file.content }));
       return;
     }
 
-    const matches = sub.deliverable.matchAll(/```(\w+)?\n([\s\S]*?)```/g);
+    const matches = sub.deliverable!.matchAll(/```(\w+)?\n([\s\S]*?)```/g);
     for (const match of matches) {
       looseCodeBlocks.push({
         lang: match[1] || "txt",
         code: match[2],
-        subtaskIndex: index,
+        subtaskIndex: sub.subtaskIndex,
         description: sub.description,
       });
     }
@@ -202,6 +209,10 @@ export const downloadTaskCode = (task: Task): void => {
   }
 
   const zip = new JSZip();
+  // realFiles is already in module execution order, so later duplicates
+  // of the same path correctly overwrite earlier ones as JSZip processes
+  // them in sequence — the same "later module wins" semantics as the
+  // build pipeline itself.
   realFiles.forEach((file) => zip.file(file.path, file.content));
   looseCodeBlocks.forEach((block) => {
     const ext = block.lang === "javascript" ? "js" : block.lang;

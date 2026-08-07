@@ -449,8 +449,25 @@ function SubtaskCard({ subtask, index, taskId, onClaimed }: { subtask: Subtask; 
                 );
               }
 
+              const wordCount = subtask.deliverable.split(/\s+/).filter(Boolean).length;
+              const docLabel: Record<string, string> = {
+                research: "Research Report",
+                "fact-checking": "Fact-Check Report",
+                "data-analysis": "Analysis Report",
+                "content-writing": "Document",
+                summarization: "Summary",
+                translation: "Translation",
+                "math-reasoning": "Solution",
+                planning: "Plan",
+                "image-analysis": "Analysis",
+              };
+
               return (
-                <ReactMarkdown
+                <div>
+                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                    <FileText size={12} /> {docLabel[subtask.capability] || "Deliverable"} · {wordCount.toLocaleString()} words
+                  </div>
+                  <ReactMarkdown
                   components={{
                     code({ node, inline, className, children, ...props }) {
                       const match = /language-(\w+)/.exec(className || "");
@@ -474,9 +491,10 @@ function SubtaskCard({ subtask, index, taskId, onClaimed }: { subtask: Subtask; 
                     ul: ({children}) => <ul style={{marginBottom: "8px", paddingLeft: "20px"}}>{children}</ul>,
                     p: ({children}) => <p style={{marginBottom: "8px"}}>{children}</p>,
                   }}
-                >
-                  {subtask.deliverable}
-                </ReactMarkdown>
+                  >
+                    {subtask.deliverable}
+                  </ReactMarkdown>
+                </div>
               );
             })()}
           </div>

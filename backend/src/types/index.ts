@@ -69,6 +69,7 @@ export interface Subtask {
   disputeReason?: string;   // why the evaluator rejected it — persisted so it survives a page reload, not just a live WS event
   retryOf?: number;         // subtaskIndex of the original attempt, if this subtask is a retry
   retryCount?: number;      // how many retries have happened for this line of work (0 = original attempt)
+  dependsOn?: number[];     // subtaskIndex values this depends on — their deliverables get fed as context, and this won't execute until they've resolved
 }
 
 export interface Task {
