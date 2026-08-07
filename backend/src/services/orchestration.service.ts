@@ -606,6 +606,14 @@ Rules:
         payout: subtask.budget,
         txHash: task.txHashes[`settle-${subtask.subtaskIndex}`],
       });
+
+      // ✅ FIX: code-review's findings used to be purely advisory — nothing
+      // ever read its verdict or acted on it. If it flagged real
+      // integration problems between modules, this now actually spawns a
+      // targeted repair pass instead of just letting the report sit there.
+      if (subtask.capability === "code-review") {
+        await this.handlePostReviewIntegrationCheck(task, subtask);
+      }
       return;
     }
 
@@ -654,6 +662,104 @@ Rules:
    * on-chain allocatedBudget was decremented by disputeSubtask(), so
    * re-reserving the same amount for the retry stays within totalBudget.
    */
+  /**
+   * Runs after a code-review subtask settles. Its findings were previously
+   * purely advisory — this asks a small, structured question of the review
+   * itself: did it identify real integration problems between modules
+   * (not just general code quality notes)? If so, and if there's budget
+   * left, spawns one targeted repair pass with full context of every
+   * module's real code plus the review's specific findings. Capped at one
+   * repair attempt — no re-review loop — to keep this bounded.
+   */
+  private async handlePostReviewIntegrationCheck(task: Task, reviewSubtask: Subtask): Promise<void> {
+    if (!reviewSubtask.deliverable) return;
+
+    let verdict: { hasIntegrationIssues: boolean; summary: string };
+    try {
+      const response = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 300,
+        temperature: 0,
+        messages: [
+          {
+            role: "user",
+            content: `This is a code review of a multi-module app build:\n\n${reviewSubtask.deliverable}\n\nDoes this review identify any REAL integration/compatibility problems BETWEEN MODULES that would stop the app from actually running together (e.g. conflicting entry points, duplicate/incompatible navigation setups, mismatched imports between files from different modules)? General code-quality notes, style suggestions, or issues within a single file do NOT count — only cross-module integration breakage.\n\nReturn ONLY valid JSON (no markdown):\n{"hasIntegrationIssues": <true/false>, "summary": "<concise, specific description of exactly what needs fixing, or empty string if none>"}`,
+          },
+        ],
+      });
+      const text = response.choices[0]?.message?.content ?? "";
+      verdict = JSON.parse(text.replace(/```json|```/g, "").trim());
+    } catch (err) {
+      this.log(task, "warning", `Could not run post-review integration check: ${(err as Error).message}`);
+      return;
+    }
+
+    if (!verdict.hasIntegrationIssues) return;
+
+    const remainingBudget = task.totalBudget - task.allocatedBudget;
+    const MIN_REPAIR_BUDGET = 500_000; // 0.5 USDC — below this, not worth attempting
+    if (remainingBudget < MIN_REPAIR_BUDGET) {
+      this.log(task, "warning", `Code review flagged integration issues but no budget remains for a repair pass: ${verdict.summary}`);
+      return;
+    }
+
+    const builderSubtasks = task.subtasks.filter((s) => s.capability === "app-builder" && s.status === "settled");
+    if (builderSubtasks.length === 0) return;
+
+    const agent = await agentRegistry.getBestAgent("app-builder");
+    if (!agent) {
+      this.log(task, "warning", `Code review flagged integration issues but no app-builder agent is available to fix them: ${verdict.summary}`);
+      return;
+    }
+
+    const newIndex = Math.max(...task.subtasks.map((s) => s.subtaskIndex)) + 1;
+    const repairBudget = Math.min(remainingBudget, builderSubtasks[builderSubtasks.length - 1].budget);
+
+    const repairSubtask: Subtask = {
+      id: randomUUID(),
+      taskId: task.id,
+      subtaskIndex: newIndex,
+      description: `Fix integration issues found in code review: ${verdict.summary}`,
+      capability: "app-builder",
+      assignedAgent: agent,
+      budget: repairBudget,
+      status: "assigned",
+      assignedAt: new Date().toISOString(),
+      dependsOn: [...builderSubtasks.map((s) => s.subtaskIndex), reviewSubtask.subtaskIndex],
+    };
+
+    task.subtasks.push(repairSubtask);
+    task.allocatedBudget += repairBudget;
+    await taskStore.set(task);
+
+    this.log(task, "info", `Code review flagged integration issues — spawning a repair pass with ${agent.name}: ${verdict.summary}`);
+    this.emit(task, "subtask:assigned", {
+      subtaskIndex: newIndex,
+      agentName: agent.name,
+      capability: "app-builder",
+      budget: repairBudget,
+      status: "assigned",
+    });
+
+    try {
+      const onChainIndex = task.subtasks.filter((s) => s.onChainSubtaskIndex !== undefined).length;
+      const txHash = await onChainService.assignSubtask({
+        taskId: task.onChainTaskId!,
+        agentWallet: agent.walletAddress as `0x${string}`,
+        capability: "app-builder",
+        budget: repairBudget,
+        description: repairSubtask.description,
+      });
+      repairSubtask.onChainSubtaskIndex = onChainIndex;
+      task.txHashes[`assign-${newIndex}`] = txHash;
+      await taskStore.set(task);
+    } catch (chainErr) {
+      this.log(task, "warning", `On-chain assignment failed for repair subtask ${newIndex}: ${(chainErr as Error).message}`);
+    }
+
+    await this.processSubtask(task, repairSubtask);
+  }
+
   private async spawnRetry(task: Task, original: Subtask): Promise<Subtask | null> {
     const failedAgentId = original.assignedAgent?.id;
     let agent = failedAgentId ? await agentRegistry.getBestAgent(original.capability, failedAgentId) : null;
