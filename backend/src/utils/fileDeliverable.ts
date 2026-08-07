@@ -44,7 +44,7 @@ export interface StructuralCheckResult {
 }
 
 const PLACEHOLDER_PATTERNS = [
-  /\btodo\b/i,
+  /\btodo:\s*\S/i,     // "TODO: implement this" — NOT bare "todo", which false-positives on to-do-app titles/headings
   /\bfixme\b/i,
   /rest of (the )?code (goes )?here/i,
   /\.\.\.\s*(rest|remaining|etc)/i,
