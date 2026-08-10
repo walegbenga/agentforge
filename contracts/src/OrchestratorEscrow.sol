@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -23,8 +23,20 @@ interface IAgentCapabilityRegistry {
  *
  *  USDC contract on Arc Testnet: 0x3600000000000000000000000000000000000000
  */
-contract OrchestratorEscrow is Ownable, ReentrancyGuard {
+contract OrchestratorEscrow is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
+
+    /**
+     * @dev Multiple wallets can hold ORCHESTRATOR_ROLE simultaneously —
+     * this is what lets assignSubtask/settleSubtask/disputeSubtask/
+     * completeTask be signed by a POOL of operator wallets in parallel
+     * instead of a single address's sequential nonce being the ceiling on
+     * platform throughput. DEFAULT_ADMIN_ROLE (see AccessControl) is what
+     * can grant/revoke this role and is held only by the deployer/admin —
+     * never grant ORCHESTRATOR_ROLE to anyone who shouldn't be able to
+     * decide payouts, since that's exactly what this role authorizes.
+     */
+    bytes32 public constant ORCHESTRATOR_ROLE = keccak256("ORCHESTRATOR_ROLE");
 
     // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -81,7 +93,7 @@ contract OrchestratorEscrow is Ownable, ReentrancyGuard {
     event TaskCreated(uint256 indexed taskId, address indexed requester, uint256 budget);
     event SubtaskAssigned(uint256 indexed taskId, uint256 indexed subtaskIndex, address agent, uint256 budget);
     event DeliverableSubmitted(uint256 indexed taskId, uint256 indexed subtaskIndex, bytes32 deliverableHash);
-    event SubtaskSettled(uint256 indexed taskId, uint256 indexed subtaskIndex, address agent, uint256 amount);
+    event SubtaskSettled(uint256 indexed taskId, uint256 indexed subtaskIndex, address agent, uint256 amount, uint256 completionBps);
     event SubtaskDisputed(uint256 indexed taskId, uint256 indexed subtaskIndex);
     event TaskCompleted(uint256 indexed taskId);
     event TaskCancelled(uint256 indexed taskId, uint256 refundAmount);
@@ -91,11 +103,19 @@ contract OrchestratorEscrow is Ownable, ReentrancyGuard {
     constructor(
         address usdcAddress,
         address registryAddress,
-        address _feeRecipient
-    ) Ownable(msg.sender) {
+        address _feeRecipient,
+        address[] memory initialOrchestrators
+    ) {
         USDC = IERC20(usdcAddress);
         registry = IAgentCapabilityRegistry(registryAddress);
         feeRecipient = _feeRecipient;
+
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(ORCHESTRATOR_ROLE, msg.sender); // deployer works out of the box as a single signer
+
+        for (uint256 i = 0; i < initialOrchestrators.length; i++) {
+            _grantRole(ORCHESTRATOR_ROLE, initialOrchestrators[i]);
+        }
     }
 
     // ── User-facing ───────────────────────────────────────────────────────────
@@ -142,7 +162,7 @@ contract OrchestratorEscrow is Ownable, ReentrancyGuard {
         bytes32 capability,
         uint256 budget,
         string calldata description
-    ) external onlyOwner nonReentrant {
+    ) external onlyRole(ORCHESTRATOR_ROLE) nonReentrant {
         Task storage task = tasks[taskId];
         require(task.status == TaskStatus.Active, "Task not active");
         require(task.subtaskCount < MAX_SUBTASKS, "Max subtasks reached");
@@ -191,23 +211,45 @@ contract OrchestratorEscrow is Ownable, ReentrancyGuard {
     /**
      * @notice Orchestrator approves subtask → releases USDC to agent
      */
-    function settleSubtask(uint256 taskId, uint256 subtaskIndex)
-        external onlyOwner nonReentrant
+    /**
+     * @notice Settle a subtask, paying the agent a fraction of its budget
+     * proportional to completionBps (basis points, 0-10000). 10000 = fully
+     * complete, pays the full budget minus fee — identical to the old
+     * behavior. Anything below 10000 pays that fraction and frees the
+     * remainder back to the task's unallocated budget (same mechanism as
+     * a dispute), so a partially-complete submission doesn't lock up
+     * money that was never earned.
+     */
+    function settleSubtask(uint256 taskId, uint256 subtaskIndex, uint256 completionBps)
+        external onlyRole(ORCHESTRATOR_ROLE) nonReentrant
     {
+        require(completionBps > 0 && completionBps <= 10000, "Invalid completion bps");
+
         Subtask storage subtask = subtasks[taskId][subtaskIndex];
         require(subtask.status == SubtaskStatus.Submitted, "Not submitted");
 
         Task storage task = tasks[taskId];
 
-        uint256 fee = (subtask.budget * platformFeeBps) / 10000;
-        uint256 agentPayout = subtask.budget - fee;
+        uint256 payoutAmount = (subtask.budget * completionBps) / 10000;
+        uint256 fee = (payoutAmount * platformFeeBps) / 10000;
+        uint256 agentPayout = payoutAmount - fee;
+        uint256 unpaidRemainder = subtask.budget - payoutAmount;
 
         subtask.status = SubtaskStatus.Settled;
         subtask.settledAt = block.timestamp;
         task.settledCount++;
 
+        // Anything not paid out (partial completion) frees back to the
+        // task's unallocated pool, same as disputeSubtask does with the
+        // full amount — it gets refunded to the requester on completion.
+        if (unpaidRemainder > 0) {
+            task.allocatedBudget -= unpaidRemainder;
+        }
+
         // Pay agent
-        USDC.safeTransfer(subtask.agentWallet, agentPayout);
+        if (agentPayout > 0) {
+            USDC.safeTransfer(subtask.agentWallet, agentPayout);
+        }
 
         // Pay platform fee
         if (fee > 0) {
@@ -217,7 +259,7 @@ contract OrchestratorEscrow is Ownable, ReentrancyGuard {
         // Update on-chain stats
         try registry.recordJobCompletion(subtask.agentWallet, agentPayout) {} catch {}
 
-        emit SubtaskSettled(taskId, subtaskIndex, subtask.agentWallet, agentPayout);
+        emit SubtaskSettled(taskId, subtaskIndex, subtask.agentWallet, agentPayout, completionBps);
 
         // Auto-complete task if all subtasks settled
         if (task.settledCount == task.subtaskCount) {
@@ -229,7 +271,7 @@ contract OrchestratorEscrow is Ownable, ReentrancyGuard {
      * @notice Orchestrator disputes subtask → refunds budget to task pool
      */
     function disputeSubtask(uint256 taskId, uint256 subtaskIndex)
-        external onlyOwner nonReentrant
+        external onlyRole(ORCHESTRATOR_ROLE) nonReentrant
     {
         Subtask storage subtask = subtasks[taskId][subtaskIndex];
         require(
@@ -248,7 +290,7 @@ contract OrchestratorEscrow is Ownable, ReentrancyGuard {
     /**
      * @notice Mark task complete and refund any unallocated budget
      */
-    function completeTask(uint256 taskId) external onlyOwner nonReentrant {
+    function completeTask(uint256 taskId) external onlyRole(ORCHESTRATOR_ROLE) nonReentrant {
         _completeTask(taskId);
     }
 
@@ -257,7 +299,7 @@ contract OrchestratorEscrow is Ownable, ReentrancyGuard {
      */
     function cancelTask(uint256 taskId) external nonReentrant {
         Task storage task = tasks[taskId];
-        require(task.requester == msg.sender || owner() == msg.sender, "Unauthorized");
+        require(task.requester == msg.sender || hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Unauthorized");
         require(task.status == TaskStatus.Active, "Not active");
 
         uint256 refund = task.totalBudget - _settledAmount(taskId);
@@ -291,12 +333,12 @@ contract OrchestratorEscrow is Ownable, ReentrancyGuard {
 
     // ── Admin ─────────────────────────────────────────────────────────────────
 
-    function setPlatformFee(uint256 bps) external onlyOwner {
+    function setPlatformFee(uint256 bps) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(bps <= 500, "Max 5%");
         platformFeeBps = bps;
     }
 
-    function setFeeRecipient(address recipient) external onlyOwner {
+    function setFeeRecipient(address recipient) external onlyRole(DEFAULT_ADMIN_ROLE) {
         feeRecipient = recipient;
     }
 

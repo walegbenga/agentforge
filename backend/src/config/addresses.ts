@@ -2,6 +2,12 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 
 // Hardcoded fallback — always works regardless of file system
+// ⚠️ MUST BE UPDATED after redeploying OrchestratorEscrow (e.g. for the
+// AccessControl/multi-signer upgrade) — this address is only correct for
+// the OLD single-owner contract. addresses.json (written fresh by
+// contracts/scripts/deploy.ts on every deploy) takes priority over this
+// and will be correct automatically; this is only a silent trap if that
+// file is ever missing on a given deployment.
 const HARDCODED = {
   network: "arcTestnet",
   chainId: 5042002,

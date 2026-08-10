@@ -1,4 +1,5 @@
 import Groq from "groq-sdk";
+import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming } from "groq-sdk/resources/chat/completions";
 import { randomUUID } from "crypto";
 import { keccak256, toBytes } from "viem";
 import { agentRegistry } from "./agentRegistry.service.js";
@@ -65,14 +66,28 @@ export class OrchestrationEngine {
       budget: params.budget,
     });
 
-    this.runOrchestration(task).catch(async (err) => {
+    // ✅ FIX: this used to be fire-and-forget (`.catch()` on a detached
+    // promise, never awaited) — meaning createAndRunTask returned almost
+    // instantly after just STARTING orchestration, not after it actually
+    // finished. That meant the BullMQ job wrapping this call also
+    // "completed" almost instantly regardless of how long the real
+    // decompose→build→evaluate pipeline took — so the Worker's
+    // concurrency setting was never actually gating how many full
+    // orchestrations ran at once. Every submitted task's real work ran
+    // fully unbounded in the background, all hammering Groq concurrently
+    // with no ceiling. Now this genuinely awaits the whole pipeline, so
+    // the queue's concurrency limit (see taskQueue.service.ts) is real
+    // backpressure, not just a limit on how fast job records get created.
+    try {
+      await this.runOrchestration(task);
+    } catch (err: any) {
       task.status = "failed";
       task.error = err.message;
       this.log(task, "error", `Orchestration failed: ${err.message}`);
       this.emit(task, "task:updated", { status: "failed", error: err.message });
       await taskStore.set(task).catch(console.error);
       await this.refundOnFailure(task);
-    });
+    }
 
     return task;
   }
@@ -381,7 +396,7 @@ Rules:
 - Total budget must not exceed ${totalBudgetUSDC} USDC
 - Return ONLY the JSON object, nothing else`;
 
-    const response = await groq.chat.completions.create({
+    const response = await this.callGroqWithRateLimitRetry({
       model: "llama-3.3-70b-versatile",
       max_tokens: 1500,
       temperature: 0.3,
@@ -583,9 +598,25 @@ Rules:
       return;
     }
 
-    if (evaluation.approved) {
+    // ✅ Partial settlement: payout is proportional to the evaluator's
+    // score, not a binary all-or-nothing. Below MIN_PAYABLE_SCORE, the
+    // work doesn't earn any credit at all — full dispute, budget freed,
+    // retry-eligible (same as before). At or above it, the agent gets
+    // paid for the fraction of the job actually delivered, even if it
+    // wasn't 100%.
+    const MIN_PAYABLE_SCORE = 25;
+
+    if (evaluation.score >= MIN_PAYABLE_SCORE) {
+      const completionBps = Math.max(1, Math.min(10000, Math.round(evaluation.score * 100)));
+      const payoutAmount = Math.floor((subtask.budget * completionBps) / 10000);
+      const isPartial = completionBps < 10000;
+
       try {
-        const settleTx = await onChainService.settleSubtask(task.onChainTaskId!, subtask.onChainSubtaskIndex ?? subtask.subtaskIndex);
+        const settleTx = await onChainService.settleSubtask(
+          task.onChainTaskId!,
+          subtask.onChainSubtaskIndex ?? subtask.subtaskIndex,
+          completionBps
+        );
         task.txHashes[`settle-${subtask.subtaskIndex}`] = settleTx;
       } catch (chainErr) {
         this.log(task, "warning", `On-chain settlement failed for subtask ${subtask.subtaskIndex}: ${(chainErr as Error).message}`);
@@ -593,17 +624,31 @@ Rules:
 
       subtask.status = "settled";
       subtask.settledAt = new Date().toISOString();
-      await agentRegistry.recordCompletion(subtask.assignedAgent!.id, subtask.budget);
+      subtask.completionBps = completionBps;
+      subtask.payoutAmount = payoutAmount;
+      if (isPartial) {
+        // Unpaid remainder frees back to unallocated, same as a dispute —
+        // it gets refunded to the requester when the task completes.
+        task.allocatedBudget = Math.max(0, task.allocatedBudget - (subtask.budget - payoutAmount));
+      }
+      await agentRegistry.recordCompletion(subtask.assignedAgent!.id, payoutAmount);
       await taskStore.set(task);
 
-      this.log(task, "success", `✓ ${subtask.assignedAgent!.name} settled — score ${evaluation.score}/100`, {
-        payout: subtask.budget / 1_000_000,
-      });
+      this.log(
+        task,
+        "success",
+        isPartial
+          ? `◐ ${subtask.assignedAgent!.name} partially settled — ${evaluation.score}/100, paid $${(payoutAmount / 1_000_000).toFixed(2)} of $${(subtask.budget / 1_000_000).toFixed(2)}`
+          : `✓ ${subtask.assignedAgent!.name} settled — score ${evaluation.score}/100`,
+        { payout: payoutAmount / 1_000_000 }
+      );
       this.emit(task, "subtask:settled", {
         subtaskIndex: subtask.subtaskIndex,
         agentName: subtask.assignedAgent!.name,
         score: evaluation.score,
-        payout: subtask.budget,
+        payout: payoutAmount,
+        completionBps,
+        partial: isPartial,
         txHash: task.txHashes[`settle-${subtask.subtaskIndex}`],
       });
 
@@ -614,11 +659,18 @@ Rules:
       if (subtask.capability === "code-review") {
         await this.handlePostReviewIntegrationCheck(task, subtask);
       }
+
+      // A partial settlement still reflects a real gap — worth one retry
+      // attempt to see if a fresh pass can close it, same cap as a full
+      // dispute. A perfect/near-perfect score skips this entirely.
+      if (isPartial && evaluation.score < 85) {
+        await this.maybeRetry(task, subtask);
+      }
       return;
     }
 
-    // Rejected — dispute on-chain (frees the reserved budget), persist why,
-    // then decide whether a retry is warranted.
+    // Below the payable floor — dispute on-chain (frees the reserved
+    // budget), persist why, then decide whether a retry is warranted.
     try {
       await onChainService.disputeSubtask(task.onChainTaskId!, subtask.onChainSubtaskIndex ?? subtask.subtaskIndex);
     } catch (chainErr) {
@@ -676,7 +728,7 @@ Rules:
 
     let verdict: { hasIntegrationIssues: boolean; summary: string };
     try {
-      const response = await groq.chat.completions.create({
+      const response = await this.callGroqWithRateLimitRetry({
         model: "llama-3.3-70b-versatile",
         max_tokens: 300,
         temperature: 0,
@@ -833,6 +885,41 @@ Rules:
     return retrySubtask;
   }
 
+  /**
+   * Wraps a Groq call with rate-limit-aware retry. A 429 is Groq's
+   * capacity, not a verdict on the agent's work — it should never dispute
+   * the subtask or consume one of its (precious, capped) quality retries.
+   * Waits for whatever Groq actually tells us to wait (parsed from the
+   * error message), with jitter so concurrent subtasks hitting the same
+   * limit don't all wake up and collide again at the same instant.
+   */
+  private async callGroqWithRateLimitRetry(
+    params: ChatCompletionCreateParamsNonStreaming,
+    maxAttempts = 4
+  ): Promise<ChatCompletion> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await groq.chat.completions.create(params);
+      } catch (err: any) {
+        const isRateLimit =
+          err?.status === 429 ||
+          err?.error?.code === "rate_limit_exceeded" ||
+          /rate_limit_exceeded/i.test(err?.message || "");
+
+        if (!isRateLimit || attempt === maxAttempts) throw err;
+
+        const match = /try again in ([\d.]+)s/i.exec(err?.message || "");
+        const suggestedWaitMs = match ? parseFloat(match[1]) * 1000 : 15_000;
+        const jitterMs = Math.random() * 2000;
+        const waitMs = suggestedWaitMs + jitterMs;
+
+        console.warn(`Groq rate limit hit (attempt ${attempt}/${maxAttempts}) — waiting ${(waitMs / 1000).toFixed(1)}s before retrying`);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
+    throw new Error("Unreachable"); // maxAttempts >= 1 guarantees return or throw above
+  }
+
   private async executeSubtask(task: Task, subtask: Subtask): Promise<void> {
     const agent = subtask.assignedAgent!;
     subtask.status = "executing";
@@ -867,7 +954,7 @@ Rules:
         .map((s) => `--- Output from "${s.capability}" (${s.description}) ---\n${s.deliverable}`)
         .join("\n\n");
 
-      const response = await groq.chat.completions.create({
+      const response = await this.callGroqWithRateLimitRetry({
         model: "llama-3.3-70b-versatile",
         max_tokens: subtask.capability === "app-builder" ? 8000 : 4000,
         temperature: 0.5,
@@ -901,9 +988,11 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
 - Include every file needed: source files, package.json/requirements.txt, a README.md with setup + run instructions, and config files. A "working app" means someone can follow the README and actually run it.
 - Do not add commentary between files beyond the "### FILE:" heading — keep narrative explanation to a short intro before the first file.
 - If a spec was provided below, build to that spec — implement the full feature set it describes, not just the minimum literally stated in the one-line task.
+- SECRETS & CREDENTIALS: never invent real-looking API keys, database URLs, or secrets. Read them from environment variables (e.g. process.env.SECRET_KEY) with a clearly-labeled placeholder or empty default. Your README MUST include an "## Environment Setup" section listing every required environment variable, what it's for, and concrete instructions to obtain or generate a real value (e.g. "SECRET_KEY — run \`openssl rand -hex 32\` and paste the output" or "DATABASE_URL — create a free Postgres instance on Railway/Supabase/Neon and copy its connection string"). This is what makes the app genuinely complete — a real project never ships hardcoded secrets, and needing the user to configure their own credentials is expected, not a gap, as long as you tell them exactly how.
 - If output from a PREVIOUS app-builder module is provided below, you are EXTENDING that codebase, not starting fresh: reuse its existing files, package.json, and navigation/routing structure. Only re-output a file (with its same path) if you are actually modifying it — output that file's FULL updated contents, which will replace the previous version. Do not invent a second, incompatible project structure alongside it. Only include your own README.md if the previous module didn't already provide one.` : ""}${subtask.capability === "code-review" ? `
 
-- You will be given the actual code below. Review THAT specific code — cite real file names and real lines/functions. Do not give generic advice unconnected to what was actually submitted.` : ""}`,
+- You will be given the actual code below. Review THAT specific code — cite real file names and real lines/functions. Do not give generic advice unconnected to what was actually submitted.
+- Do not flag environment-variable-based secrets/credentials as a problem — that's correct, expected practice. Only flag it if the README fails to document the required env vars, or if the code around it is actually broken.` : ""}`,
           },
           {
             role: "user",
@@ -960,7 +1049,7 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
       return this.evaluateAppBuilderDeliverable(task, subtask);
     }
 
-    const response = await groq.chat.completions.create({
+    const response = await this.callGroqWithRateLimitRetry({
       model: "llama-3.3-70b-versatile",
       max_tokens: 500,
       temperature: 0.1,
@@ -1018,7 +1107,7 @@ Return ONLY valid JSON (no markdown):
     if (!structural.passed) {
       return {
         approved: false,
-        score: 20,
+        score: 10,
         feedback: `Failed structural check: ${structural.issues.join("; ")}`,
         deliverableHash: subtask.deliverableHash!,
       };
@@ -1026,7 +1115,7 @@ Return ONLY valid JSON (no markdown):
 
     const fileManifest = parsed.files.map((f) => `- ${f.path} (${f.content.split("\n").length} lines)`).join("\n");
 
-    const response = await groq.chat.completions.create({
+    const response = await this.callGroqWithRateLimitRetry({
       model: "llama-3.3-70b-versatile",
       max_tokens: 500,
       temperature: 0.1,
@@ -1048,7 +1137,13 @@ RUBRIC — check specifically for:
 3. Is there any code that looks unfinished (dead-end functions, logic that doesn't connect, obviously wrong syntax)?
 4. Would a developer following the README (if present) actually be able to run this?
 
-Be genuinely strict — approve only if this would actually run and do what was asked, not if it merely "looks like" an app.
+DO NOT PENALIZE — these are correct, standard practice, not incompleteness:
+- Secrets, API keys, database URLs, or credentials read from environment variables (e.g. process.env.SECRET_KEY, process.env.DATABASE_URL) with a placeholder/example value or empty default. No AI agent can know the requester's real production secrets, and no real shipped codebase hardcodes them either — that's how every legitimate project works. This is ONLY a problem if either:
+  (a) the code would be functionally BROKEN even after the user sets a real value (e.g. the env var is referenced but never actually used, or the logic around it doesn't work), or
+  (b) the README does not clearly document which environment variables need to be set, what each is for, and how to obtain/generate a value (e.g. "run openssl rand -hex 32 for SECRET_KEY", "create a free Postgres DB at [provider] and copy its connection string for DATABASE_URL").
+A submission that correctly reads secrets from the environment AND documents setup in the README should score as complete on this point, not disputed for "placeholder values."
+
+Be genuinely strict on real completeness — approve only if this would actually run and do what was asked once the documented setup steps are followed, not if it merely "looks like" an app. But do not confuse "requires the user to configure their own credentials" with "incomplete."
 
 FULL SUBMISSION:
 ${subtask.deliverable}
