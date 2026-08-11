@@ -1,12 +1,19 @@
 {
   "network": "arcTestnet",
-  "chainId": 2911,
-  "deployedAt": "2026-05-21T17:58:08.915Z",
+  "chainId": 5042002,
+  "deployedAt": "2026-08-10T16:20:19.456Z",
   "contracts": {
-    "AgentCapabilityRegistry": "0xc749a117C3222Fee7a000161c01756EEFb027981",
-    "OrchestratorEscrow": "0x4ca8EdA765c2d768d0b0FDe277bf2b973989246c",
+    "AgentCapabilityRegistry": "0x44E32907C52E8ee58ceB12C7bBC39bbc916DB73c",
+    "OrchestratorEscrow": "0x10916060550c3B691288442CE702e2E5cB32fD1C",
     "USDC": "0x3600000000000000000000000000000000000000"
   },
+  "orchestratorWallets": [
+    "0x02F302411260e69Cde5A439A9B7B8e151f1D2d0C",
+    "0x068ee32A61e502990E2B02ba1C0D5e864398D0f9",
+    "0xE6ac2717a0A058FA6A1F0dA1d186A9c370bd4392",
+    "0x3A3E8980cB0Cc3ACd4Ef27ec8C94Bffff19A0dda",
+    "0x02F302411260e69Cde5A439A9B7B8e151f1D2d0C"
+  ],
   "arc": {
     "IdentityRegistry": "0x8004A818BFB912233c491871b3d84c89A494BD9e",
     "ReputationRegistry": "0x8004B663056A597Dffe9eCcC1965A193B7388713",

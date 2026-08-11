@@ -39,6 +39,8 @@ export interface Subtask {
   disputeReason?: string;
   retryOf?: number;
   retryCount?: number;
+  completionBps?: number;
+  payoutAmount?: number;
 }
 
 export interface LogEntry {

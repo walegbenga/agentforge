@@ -70,6 +70,8 @@ export interface Subtask {
   retryOf?: number;         // subtaskIndex of the original attempt, if this subtask is a retry
   retryCount?: number;      // how many retries have happened for this line of work (0 = original attempt)
   dependsOn?: number[];     // subtaskIndex values this depends on — their deliverables get fed as context, and this won't execute until they've resolved
+  completionBps?: number;   // 0-10000 — what fraction of the budget was actually paid out (10000 = 100%)
+  payoutAmount?: number;    // actual USDC (6 decimals) paid to the agent, may be less than budget for partial completion
 }
 
 export interface Task {

@@ -267,6 +267,7 @@ export default function TaskDetail() {
 
 function SubtaskCard({ subtask, index, taskId, onClaimed }: { subtask: Subtask; index: number; taskId: string; onClaimed: () => void }) {
   const cfg = SUBTASK_STATUS[subtask.status];
+  const isPartial = subtask.status === "settled" && subtask.completionBps !== undefined && subtask.completionBps < 10000;
   const budgetUSDC = (subtask.budget / 1_000_000).toFixed(4);
   const isActive = ["executing", "assigned"].includes(subtask.status);
   const { isConnected } = useAccount();
@@ -300,10 +301,16 @@ function SubtaskCard({ subtask, index, taskId, onClaimed }: { subtask: Subtask; 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-muted)" }}>#{index + 1}</span>
-          <span className={`badge ${cfg.badge}`}>
-            {isActive && <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>}
-            {cfg.label}
-          </span>
+          {isPartial ? (
+            <span className="badge badge-yellow">
+              <CheckCircle size={10} /> Partial ({Math.round((subtask.completionBps ?? 0) / 100)}%)
+            </span>
+          ) : (
+            <span className={`badge ${cfg.badge}`}>
+              {isActive && <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>}
+              {cfg.label}
+            </span>
+          )}
           <span className="badge badge-muted" style={{ fontSize: "0.65rem" }}>{subtask.capability}</span>
           {subtask.retryCount ? (
             <span className="badge badge-yellow" style={{ fontSize: "0.65rem" }}>
@@ -311,7 +318,9 @@ function SubtaskCard({ subtask, index, taskId, onClaimed }: { subtask: Subtask; 
             </span>
           ) : null}
         </div>
-        <span className="badge badge-usdc">${budgetUSDC}</span>
+        <span className="badge badge-usdc">
+          {isPartial ? `$${((subtask.payoutAmount ?? 0) / 1_000_000).toFixed(2)} of $${budgetUSDC}` : `$${budgetUSDC}`}
+        </span>
       </div>
 
       <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 10, lineHeight: 1.5 }}>

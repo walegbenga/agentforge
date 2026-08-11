@@ -102,7 +102,9 @@ export declare namespace OrchestratorEscrow {
 export interface OrchestratorEscrowInterface extends Interface {
   getFunction(
     nameOrSignature:
+      | "DEFAULT_ADMIN_ROLE"
       | "MAX_SUBTASKS"
+      | "ORCHESTRATOR_ROLE"
       | "TASK_EXPIRY"
       | "USDC"
       | "assignSubtask"
@@ -111,27 +113,32 @@ export interface OrchestratorEscrowInterface extends Interface {
       | "createTask"
       | "disputeSubtask"
       | "feeRecipient"
+      | "getRoleAdmin"
       | "getSubtask"
       | "getSubtasks"
       | "getTask"
+      | "grantRole"
+      | "hasRole"
       | "nextTaskId"
-      | "owner"
       | "platformFeeBps"
       | "registry"
-      | "renounceOwnership"
+      | "renounceRole"
+      | "revokeRole"
       | "setFeeRecipient"
       | "setPlatformFee"
       | "settleSubtask"
       | "submitDeliverable"
       | "subtasks"
+      | "supportsInterface"
       | "tasks"
-      | "transferOwnership"
   ): FunctionFragment;
 
   getEvent(
     nameOrSignatureOrTopic:
       | "DeliverableSubmitted"
-      | "OwnershipTransferred"
+      | "RoleAdminChanged"
+      | "RoleGranted"
+      | "RoleRevoked"
       | "SubtaskAssigned"
       | "SubtaskDisputed"
       | "SubtaskSettled"
@@ -141,7 +148,15 @@ export interface OrchestratorEscrowInterface extends Interface {
   ): EventFragment;
 
   encodeFunctionData(
+    functionFragment: "DEFAULT_ADMIN_ROLE",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "MAX_SUBTASKS",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "ORCHESTRATOR_ROLE",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -174,6 +189,10 @@ export interface OrchestratorEscrowInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "getRoleAdmin",
+    values: [BytesLike]
+  ): string;
+  encodeFunctionData(
     functionFragment: "getSubtask",
     values: [BigNumberish, BigNumberish]
   ): string;
@@ -186,18 +205,29 @@ export interface OrchestratorEscrowInterface extends Interface {
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
+    functionFragment: "grantRole",
+    values: [BytesLike, AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "hasRole",
+    values: [BytesLike, AddressLike]
+  ): string;
+  encodeFunctionData(
     functionFragment: "nextTaskId",
     values?: undefined
   ): string;
-  encodeFunctionData(functionFragment: "owner", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "platformFeeBps",
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "registry", values?: undefined): string;
   encodeFunctionData(
-    functionFragment: "renounceOwnership",
-    values?: undefined
+    functionFragment: "renounceRole",
+    values: [BytesLike, AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "revokeRole",
+    values: [BytesLike, AddressLike]
   ): string;
   encodeFunctionData(
     functionFragment: "setFeeRecipient",
@@ -209,7 +239,7 @@ export interface OrchestratorEscrowInterface extends Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "settleSubtask",
-    values: [BigNumberish, BigNumberish]
+    values: [BigNumberish, BigNumberish, BigNumberish]
   ): string;
   encodeFunctionData(
     functionFragment: "submitDeliverable",
@@ -219,14 +249,22 @@ export interface OrchestratorEscrowInterface extends Interface {
     functionFragment: "subtasks",
     values: [BigNumberish, BigNumberish]
   ): string;
-  encodeFunctionData(functionFragment: "tasks", values: [BigNumberish]): string;
   encodeFunctionData(
-    functionFragment: "transferOwnership",
-    values: [AddressLike]
+    functionFragment: "supportsInterface",
+    values: [BytesLike]
   ): string;
+  encodeFunctionData(functionFragment: "tasks", values: [BigNumberish]): string;
 
   decodeFunctionResult(
+    functionFragment: "DEFAULT_ADMIN_ROLE",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "MAX_SUBTASKS",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "ORCHESTRATOR_ROLE",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -252,23 +290,29 @@ export interface OrchestratorEscrowInterface extends Interface {
     functionFragment: "feeRecipient",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(
+    functionFragment: "getRoleAdmin",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(functionFragment: "getSubtask", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "getSubtasks",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "getTask", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "grantRole", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "hasRole", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "nextTaskId", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "owner", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "platformFeeBps",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "registry", data: BytesLike): Result;
   decodeFunctionResult(
-    functionFragment: "renounceOwnership",
+    functionFragment: "renounceRole",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "revokeRole", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "setFeeRecipient",
     data: BytesLike
@@ -286,11 +330,11 @@ export interface OrchestratorEscrowInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "subtasks", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "tasks", data: BytesLike): Result;
   decodeFunctionResult(
-    functionFragment: "transferOwnership",
+    functionFragment: "supportsInterface",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "tasks", data: BytesLike): Result;
 }
 
 export namespace DeliverableSubmittedEvent {
@@ -315,12 +359,57 @@ export namespace DeliverableSubmittedEvent {
   export type LogDescription = TypedLogDescription<Event>;
 }
 
-export namespace OwnershipTransferredEvent {
-  export type InputTuple = [previousOwner: AddressLike, newOwner: AddressLike];
-  export type OutputTuple = [previousOwner: string, newOwner: string];
+export namespace RoleAdminChangedEvent {
+  export type InputTuple = [
+    role: BytesLike,
+    previousAdminRole: BytesLike,
+    newAdminRole: BytesLike
+  ];
+  export type OutputTuple = [
+    role: string,
+    previousAdminRole: string,
+    newAdminRole: string
+  ];
   export interface OutputObject {
-    previousOwner: string;
-    newOwner: string;
+    role: string;
+    previousAdminRole: string;
+    newAdminRole: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace RoleGrantedEvent {
+  export type InputTuple = [
+    role: BytesLike,
+    account: AddressLike,
+    sender: AddressLike
+  ];
+  export type OutputTuple = [role: string, account: string, sender: string];
+  export interface OutputObject {
+    role: string;
+    account: string;
+    sender: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace RoleRevokedEvent {
+  export type InputTuple = [
+    role: BytesLike,
+    account: AddressLike,
+    sender: AddressLike
+  ];
+  export type OutputTuple = [role: string, account: string, sender: string];
+  export interface OutputObject {
+    role: string;
+    account: string;
+    sender: string;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -371,19 +460,22 @@ export namespace SubtaskSettledEvent {
     taskId: BigNumberish,
     subtaskIndex: BigNumberish,
     agent: AddressLike,
-    amount: BigNumberish
+    amount: BigNumberish,
+    completionBps: BigNumberish
   ];
   export type OutputTuple = [
     taskId: bigint,
     subtaskIndex: bigint,
     agent: string,
-    amount: bigint
+    amount: bigint,
+    completionBps: bigint
   ];
   export interface OutputObject {
     taskId: bigint;
     subtaskIndex: bigint;
     agent: string;
     amount: bigint;
+    completionBps: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -477,7 +569,11 @@ export interface OrchestratorEscrow extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
+  DEFAULT_ADMIN_ROLE: TypedContractMethod<[], [string], "view">;
+
   MAX_SUBTASKS: TypedContractMethod<[], [bigint], "view">;
+
+  ORCHESTRATOR_ROLE: TypedContractMethod<[], [string], "view">;
 
   TASK_EXPIRY: TypedContractMethod<[], [bigint], "view">;
 
@@ -517,6 +613,8 @@ export interface OrchestratorEscrow extends BaseContract {
 
   feeRecipient: TypedContractMethod<[], [string], "view">;
 
+  getRoleAdmin: TypedContractMethod<[role: BytesLike], [string], "view">;
+
   getSubtask: TypedContractMethod<
     [taskId: BigNumberish, index: BigNumberish],
     [OrchestratorEscrow.SubtaskStructOutput],
@@ -535,15 +633,35 @@ export interface OrchestratorEscrow extends BaseContract {
     "view"
   >;
 
-  nextTaskId: TypedContractMethod<[], [bigint], "view">;
+  grantRole: TypedContractMethod<
+    [role: BytesLike, account: AddressLike],
+    [void],
+    "nonpayable"
+  >;
 
-  owner: TypedContractMethod<[], [string], "view">;
+  hasRole: TypedContractMethod<
+    [role: BytesLike, account: AddressLike],
+    [boolean],
+    "view"
+  >;
+
+  nextTaskId: TypedContractMethod<[], [bigint], "view">;
 
   platformFeeBps: TypedContractMethod<[], [bigint], "view">;
 
   registry: TypedContractMethod<[], [string], "view">;
 
-  renounceOwnership: TypedContractMethod<[], [void], "nonpayable">;
+  renounceRole: TypedContractMethod<
+    [role: BytesLike, callerConfirmation: AddressLike],
+    [void],
+    "nonpayable"
+  >;
+
+  revokeRole: TypedContractMethod<
+    [role: BytesLike, account: AddressLike],
+    [void],
+    "nonpayable"
+  >;
 
   setFeeRecipient: TypedContractMethod<
     [recipient: AddressLike],
@@ -558,7 +676,11 @@ export interface OrchestratorEscrow extends BaseContract {
   >;
 
   settleSubtask: TypedContractMethod<
-    [taskId: BigNumberish, subtaskIndex: BigNumberish],
+    [
+      taskId: BigNumberish,
+      subtaskIndex: BigNumberish,
+      completionBps: BigNumberish
+    ],
     [void],
     "nonpayable"
   >;
@@ -603,6 +725,12 @@ export interface OrchestratorEscrow extends BaseContract {
     "view"
   >;
 
+  supportsInterface: TypedContractMethod<
+    [interfaceId: BytesLike],
+    [boolean],
+    "view"
+  >;
+
   tasks: TypedContractMethod<
     [arg0: BigNumberish],
     [
@@ -633,19 +761,19 @@ export interface OrchestratorEscrow extends BaseContract {
     "view"
   >;
 
-  transferOwnership: TypedContractMethod<
-    [newOwner: AddressLike],
-    [void],
-    "nonpayable"
-  >;
-
   getFunction<T extends ContractMethod = ContractMethod>(
     key: string | FunctionFragment
   ): T;
 
   getFunction(
+    nameOrSignature: "DEFAULT_ADMIN_ROLE"
+  ): TypedContractMethod<[], [string], "view">;
+  getFunction(
     nameOrSignature: "MAX_SUBTASKS"
   ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "ORCHESTRATOR_ROLE"
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "TASK_EXPIRY"
   ): TypedContractMethod<[], [bigint], "view">;
@@ -689,6 +817,9 @@ export interface OrchestratorEscrow extends BaseContract {
     nameOrSignature: "feeRecipient"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
+    nameOrSignature: "getRoleAdmin"
+  ): TypedContractMethod<[role: BytesLike], [string], "view">;
+  getFunction(
     nameOrSignature: "getSubtask"
   ): TypedContractMethod<
     [taskId: BigNumberish, index: BigNumberish],
@@ -710,11 +841,22 @@ export interface OrchestratorEscrow extends BaseContract {
     "view"
   >;
   getFunction(
+    nameOrSignature: "grantRole"
+  ): TypedContractMethod<
+    [role: BytesLike, account: AddressLike],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "hasRole"
+  ): TypedContractMethod<
+    [role: BytesLike, account: AddressLike],
+    [boolean],
+    "view"
+  >;
+  getFunction(
     nameOrSignature: "nextTaskId"
   ): TypedContractMethod<[], [bigint], "view">;
-  getFunction(
-    nameOrSignature: "owner"
-  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "platformFeeBps"
   ): TypedContractMethod<[], [bigint], "view">;
@@ -722,8 +864,19 @@ export interface OrchestratorEscrow extends BaseContract {
     nameOrSignature: "registry"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
-    nameOrSignature: "renounceOwnership"
-  ): TypedContractMethod<[], [void], "nonpayable">;
+    nameOrSignature: "renounceRole"
+  ): TypedContractMethod<
+    [role: BytesLike, callerConfirmation: AddressLike],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "revokeRole"
+  ): TypedContractMethod<
+    [role: BytesLike, account: AddressLike],
+    [void],
+    "nonpayable"
+  >;
   getFunction(
     nameOrSignature: "setFeeRecipient"
   ): TypedContractMethod<[recipient: AddressLike], [void], "nonpayable">;
@@ -733,7 +886,11 @@ export interface OrchestratorEscrow extends BaseContract {
   getFunction(
     nameOrSignature: "settleSubtask"
   ): TypedContractMethod<
-    [taskId: BigNumberish, subtaskIndex: BigNumberish],
+    [
+      taskId: BigNumberish,
+      subtaskIndex: BigNumberish,
+      completionBps: BigNumberish
+    ],
     [void],
     "nonpayable"
   >;
@@ -780,6 +937,9 @@ export interface OrchestratorEscrow extends BaseContract {
     "view"
   >;
   getFunction(
+    nameOrSignature: "supportsInterface"
+  ): TypedContractMethod<[interfaceId: BytesLike], [boolean], "view">;
+  getFunction(
     nameOrSignature: "tasks"
   ): TypedContractMethod<
     [arg0: BigNumberish],
@@ -810,9 +970,6 @@ export interface OrchestratorEscrow extends BaseContract {
     ],
     "view"
   >;
-  getFunction(
-    nameOrSignature: "transferOwnership"
-  ): TypedContractMethod<[newOwner: AddressLike], [void], "nonpayable">;
 
   getEvent(
     key: "DeliverableSubmitted"
@@ -822,11 +979,25 @@ export interface OrchestratorEscrow extends BaseContract {
     DeliverableSubmittedEvent.OutputObject
   >;
   getEvent(
-    key: "OwnershipTransferred"
+    key: "RoleAdminChanged"
   ): TypedContractEvent<
-    OwnershipTransferredEvent.InputTuple,
-    OwnershipTransferredEvent.OutputTuple,
-    OwnershipTransferredEvent.OutputObject
+    RoleAdminChangedEvent.InputTuple,
+    RoleAdminChangedEvent.OutputTuple,
+    RoleAdminChangedEvent.OutputObject
+  >;
+  getEvent(
+    key: "RoleGranted"
+  ): TypedContractEvent<
+    RoleGrantedEvent.InputTuple,
+    RoleGrantedEvent.OutputTuple,
+    RoleGrantedEvent.OutputObject
+  >;
+  getEvent(
+    key: "RoleRevoked"
+  ): TypedContractEvent<
+    RoleRevokedEvent.InputTuple,
+    RoleRevokedEvent.OutputTuple,
+    RoleRevokedEvent.OutputObject
   >;
   getEvent(
     key: "SubtaskAssigned"
@@ -883,15 +1054,37 @@ export interface OrchestratorEscrow extends BaseContract {
       DeliverableSubmittedEvent.OutputObject
     >;
 
-    "OwnershipTransferred(address,address)": TypedContractEvent<
-      OwnershipTransferredEvent.InputTuple,
-      OwnershipTransferredEvent.OutputTuple,
-      OwnershipTransferredEvent.OutputObject
+    "RoleAdminChanged(bytes32,bytes32,bytes32)": TypedContractEvent<
+      RoleAdminChangedEvent.InputTuple,
+      RoleAdminChangedEvent.OutputTuple,
+      RoleAdminChangedEvent.OutputObject
     >;
-    OwnershipTransferred: TypedContractEvent<
-      OwnershipTransferredEvent.InputTuple,
-      OwnershipTransferredEvent.OutputTuple,
-      OwnershipTransferredEvent.OutputObject
+    RoleAdminChanged: TypedContractEvent<
+      RoleAdminChangedEvent.InputTuple,
+      RoleAdminChangedEvent.OutputTuple,
+      RoleAdminChangedEvent.OutputObject
+    >;
+
+    "RoleGranted(bytes32,address,address)": TypedContractEvent<
+      RoleGrantedEvent.InputTuple,
+      RoleGrantedEvent.OutputTuple,
+      RoleGrantedEvent.OutputObject
+    >;
+    RoleGranted: TypedContractEvent<
+      RoleGrantedEvent.InputTuple,
+      RoleGrantedEvent.OutputTuple,
+      RoleGrantedEvent.OutputObject
+    >;
+
+    "RoleRevoked(bytes32,address,address)": TypedContractEvent<
+      RoleRevokedEvent.InputTuple,
+      RoleRevokedEvent.OutputTuple,
+      RoleRevokedEvent.OutputObject
+    >;
+    RoleRevoked: TypedContractEvent<
+      RoleRevokedEvent.InputTuple,
+      RoleRevokedEvent.OutputTuple,
+      RoleRevokedEvent.OutputObject
     >;
 
     "SubtaskAssigned(uint256,uint256,address,uint256)": TypedContractEvent<
@@ -916,7 +1109,7 @@ export interface OrchestratorEscrow extends BaseContract {
       SubtaskDisputedEvent.OutputObject
     >;
 
-    "SubtaskSettled(uint256,uint256,address,uint256)": TypedContractEvent<
+    "SubtaskSettled(uint256,uint256,address,uint256,uint256)": TypedContractEvent<
       SubtaskSettledEvent.InputTuple,
       SubtaskSettledEvent.OutputTuple,
       SubtaskSettledEvent.OutputObject

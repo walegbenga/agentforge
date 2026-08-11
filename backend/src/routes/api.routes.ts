@@ -235,7 +235,7 @@ router.get("/stats/me", async (req: Request, res: Response) => {
       select: { jobsCompleted: true },
     });
     const myAgentsCount = myAgents.length;
-    const myJobsCompleted = myAgents.reduce((sum, a) => sum + a.jobsCompleted, 0);
+    const myJobsCompleted = myAgents.reduce((sum: number, a: { jobsCompleted: number }) => sum + a.jobsCompleted, 0);
 
     const myCompletedTasks = await prisma.task.count({
       where: { 
@@ -250,7 +250,7 @@ router.get("/stats/me", async (req: Request, res: Response) => {
       },
       select: { totalBudget: true },
     });
-    const myTotalVolume = myTasksVolume.reduce((sum, t) => sum + t.totalBudget, 0);
+    const myTotalVolume = myTasksVolume.reduce((sum: number, t: { totalBudget: number }) => sum + t.totalBudget, 0);
 
     res.json({
       success: true,
