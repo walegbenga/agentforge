@@ -12,8 +12,8 @@ const HARDCODED = {
   network: "arcTestnet",
   chainId: 5042002,
   contracts: {
-    AgentCapabilityRegistry: "0xc749a117C3222Fee7a000161c01756EEFb027981",
-    OrchestratorEscrow: "0x4ca8EdA765c2d768d0b0FDe277bf2b973989246c",
+    AgentCapabilityRegistry: "0x44E32907C52E8ee58ceB12C7bBC39bbc916DB73c",
+    OrchestratorEscrow: "0x10916060550c3B691288442CE702e2E5cB32fD1C",
     USDC: "0x3600000000000000000000000000000000000000",
   },
   arc: {

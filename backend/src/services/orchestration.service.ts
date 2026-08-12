@@ -19,6 +19,18 @@ import type {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// Cost-tiered model routing. llama-3.3-70b-versatile ($0.59/$0.79 per M
+// input/output tokens) is reserved for calls where getting it wrong is
+// expensive — actually generating code, and judging whether generated
+// code is real and complete. llama-3.1-8b-instant ($0.05/$0.08, ~10x
+// cheaper) handles structured, lower-stakes calls: decomposition (follows
+// a JSON schema), generic non-code evaluation, and the integration
+// yes/no check. This exists because the platform's real cost is these
+// LLM calls, not a percentage of task budgets — see the service fee
+// added to OrchestratorEscrow.sol for the other half of that fix.
+const STRONG_MODEL = "llama-3.3-70b-versatile";
+const CHEAP_MODEL = "llama-3.1-8b-instant";
+
 export class OrchestrationEngine {
   async createAndRunTask(params: {
     description: string;
@@ -397,7 +409,7 @@ Rules:
 - Return ONLY the JSON object, nothing else`;
 
     const response = await this.callGroqWithRateLimitRetry({
-      model: "llama-3.3-70b-versatile",
+      model: CHEAP_MODEL,
       max_tokens: 1500,
       temperature: 0.3,
       messages: [{ role: "user", content: prompt }],
@@ -729,7 +741,7 @@ Rules:
     let verdict: { hasIntegrationIssues: boolean; summary: string };
     try {
       const response = await this.callGroqWithRateLimitRetry({
-        model: "llama-3.3-70b-versatile",
+        model: CHEAP_MODEL,
         max_tokens: 300,
         temperature: 0,
         messages: [
@@ -955,7 +967,7 @@ Rules:
         .join("\n\n");
 
       const response = await this.callGroqWithRateLimitRetry({
-        model: "llama-3.3-70b-versatile",
+        model: ["app-builder", "code-review", "planning"].includes(subtask.capability) ? STRONG_MODEL : CHEAP_MODEL,
         max_tokens: subtask.capability === "app-builder" ? 8000 : 4000,
         temperature: 0.5,
         messages: [
@@ -1050,7 +1062,7 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
     }
 
     const response = await this.callGroqWithRateLimitRetry({
-      model: "llama-3.3-70b-versatile",
+      model: CHEAP_MODEL,
       max_tokens: 500,
       temperature: 0.1,
       messages: [
@@ -1116,7 +1128,7 @@ Return ONLY valid JSON (no markdown):
     const fileManifest = parsed.files.map((f) => `- ${f.path} (${f.content.split("\n").length} lines)`).join("\n");
 
     const response = await this.callGroqWithRateLimitRetry({
-      model: "llama-3.3-70b-versatile",
+      model: STRONG_MODEL,
       max_tokens: 500,
       temperature: 0.1,
       messages: [

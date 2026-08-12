@@ -152,20 +152,28 @@ export function useTasks() {
     const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
 
     let onChainTaskId: string | null = null;
+    let netBudget: bigint | null = null;
     for (const log of receipt.logs) {
       try {
         const decoded = decodeEventLog({ abi: ESCROW_ABI, data: log.data, topics: log.topics });
         if (decoded.eventName === "TaskCreated") {
           onChainTaskId = (decoded.args as { taskId: bigint }).taskId.toString();
-          break;
+        }
+        if (decoded.eventName === "ServiceFeeCharged") {
+          netBudget = (decoded.args as { netBudget: bigint }).netBudget;
         }
       } catch {
-        // not the event we're looking for, ignore
+        // not an event from this ABI, ignore
       }
     }
     if (!onChainTaskId) {
       throw new Error("Budget was locked on-chain, but the task ID couldn't be read back from the transaction. Check the explorer and contact support before retrying — do not resubmit blindly.");
     }
+    // Fall back to the gross amount only if the fee event somehow wasn't
+    // found (e.g. an older contract without the service fee) — otherwise
+    // the backend's subtask allocation math needs the REAL net amount
+    // the contract actually escrowed, not what the user originally typed.
+    const registeredBudget = netBudget !== null ? Number(netBudget) : params.budget;
 
     onProgress?.("registering");
     const message = createSiweMessage(address, "Create a new task", chainId);
@@ -175,6 +183,7 @@ export function useTasks() {
       method: "POST",
       body: JSON.stringify({
         ...params,
+        budget: registeredBudget,
         requesterAddress: address,
         message,
         signature,

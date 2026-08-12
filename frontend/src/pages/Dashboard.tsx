@@ -240,14 +240,15 @@ export default function Dashboard() {
                   />
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
                     {[
-                      "Build a simple to-do list app using vanilla JavaScript and localStorage",
-                      "Build a Pomodoro timer web app with HTML, CSS, and JavaScript",
-                      "Research the top 5 DeFi protocols on Arc blockchain",
+                      { text: "Build a simple to-do list app using vanilla JavaScript and localStorage", budget: 5 },
+                      { text: "Build a Pomodoro timer web app with HTML, CSS, and JavaScript", budget: 5 },
+                      { text: "Research the top 5 DeFi protocols on Arc blockchain", budget: 3 },
+                      { text: "Build a full-featured banking app with auth, transfers, savings, and bill pay", budget: 25 },
                     ].map((example) => (
                       <button
-                        key={example}
+                        key={example.text}
                         type="button"
-                        onClick={() => setDescription(example)}
+                        onClick={() => { setDescription(example.text); setBudget(example.budget); }}
                         disabled={submitting}
                         style={{
                           fontSize: "0.68rem",
@@ -259,7 +260,7 @@ export default function Dashboard() {
                           cursor: "pointer",
                         }}
                       >
-                        {example.split(" ").slice(0, 5).join(" ")}...
+                        {example.text.split(" ").slice(0, 5).join(" ")}...
                       </button>
                     ))}
                   </div>
@@ -272,7 +273,7 @@ export default function Dashboard() {
                       id="task-budget"
                       type="range"
                       min="1"
-                      max="50"
+                      max="100"
                       step="1"
                       value={budget}
                       onChange={(e) => setBudget(Number(e.target.value))}
@@ -286,8 +287,23 @@ export default function Dashboard() {
                       ${budget}
                     </span>
                   </div>
-                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 6, fontFamily: "var(--font-mono)" }}>
-                    Funds locked in escrow • Settled on Arc testnet
+                  <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: 6 }}>
+                    Guide: $1–3 research/simple scripts · $5–10 single-feature apps · $15–30 multi-feature builds · $30+ complex multi-module apps
+                  </div>
+                  <div style={{
+                    marginTop: 8, padding: "8px 10px",
+                    background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius)",
+                    fontSize: "0.7rem", color: "var(--text-secondary)", fontFamily: "var(--font-mono)",
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span>You pay</span><span>${budget.toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)" }}>
+                      <span>− Service fee (8%, non-refundable)</span><span>−${(budget * 0.08).toFixed(2)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--arc)", fontWeight: 700 }}>
+                      <span>Available for agents</span><span>${(budget * 0.92).toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
 

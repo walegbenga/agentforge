@@ -43,7 +43,19 @@ contract OrchestratorEscrow is AccessControl, ReentrancyGuard {
     IERC20 public immutable USDC;
     IAgentCapabilityRegistry public immutable registry;
 
-    uint256 public platformFeeBps = 200; // 2% platform fee
+    uint256 public platformFeeBps = 200; // 2% — taken from agent payouts at settlement, only earned on work that actually succeeds
+
+    /**
+     * @dev Charged up front at task creation, non-refundable, regardless
+     * of whether subtasks later settle, dispute, or the task fails
+     * outright. This exists because the platform's real cost — LLM API
+     * calls for decomposition, generation, evaluation, and review — is
+     * incurred the moment orchestration starts, independent of whether
+     * any individual subtask ends up earning the settlement fee below.
+     * A pure settlement-fee model left the platform earning nothing on
+     * disputed work while still having paid for every attempt.
+     */
+    uint256 public serviceFeeBps = 800; // 8% default
     address public feeRecipient;
 
     uint256 public constant MAX_SUBTASKS = 20;
@@ -91,6 +103,7 @@ contract OrchestratorEscrow is AccessControl, ReentrancyGuard {
     // ── Events ────────────────────────────────────────────────────────────────
 
     event TaskCreated(uint256 indexed taskId, address indexed requester, uint256 budget);
+    event ServiceFeeCharged(uint256 indexed taskId, uint256 grossBudget, uint256 serviceFee, uint256 netBudget);
     event SubtaskAssigned(uint256 indexed taskId, uint256 indexed subtaskIndex, address agent, uint256 budget);
     event DeliverableSubmitted(uint256 indexed taskId, uint256 indexed subtaskIndex, bytes32 deliverableHash);
     event SubtaskSettled(uint256 indexed taskId, uint256 indexed subtaskIndex, address agent, uint256 amount, uint256 completionBps);
@@ -133,12 +146,20 @@ contract OrchestratorEscrow is AccessControl, ReentrancyGuard {
 
         USDC.safeTransferFrom(msg.sender, address(this), budget);
 
+        uint256 serviceFee = (budget * serviceFeeBps) / 10000;
+        uint256 netBudget = budget - serviceFee;
+        require(netBudget > 0, "Budget too small after service fee");
+
+        if (serviceFee > 0) {
+            USDC.safeTransfer(feeRecipient, serviceFee);
+        }
+
         taskId = nextTaskId++;
         tasks[taskId] = Task({
             id: taskId,
             requester: msg.sender,
             description: description,
-            totalBudget: budget,
+            totalBudget: netBudget,
             allocatedBudget: 0,
             subtaskCount: 0,
             settledCount: 0,
@@ -147,7 +168,13 @@ contract OrchestratorEscrow is AccessControl, ReentrancyGuard {
             expiresAt: block.timestamp + TASK_EXPIRY
         });
 
-        emit TaskCreated(taskId, msg.sender, budget);
+        emit TaskCreated(taskId, msg.sender, netBudget);
+        emit ServiceFeeCharged(taskId, budget, serviceFee, netBudget);
+    }
+
+    function setServiceFee(uint256 bps) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(bps <= 2000, "Max 20%");
+        serviceFeeBps = bps;
     }
 
     // ── Orchestrator-facing (backend service) ─────────────────────────────────

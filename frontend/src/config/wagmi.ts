@@ -47,8 +47,8 @@ export const arcTestnet = defineChain({
 
 export const CONTRACTS = {
   USDC: "0x3600000000000000000000000000000000000000" as `0x${string}`,
-  AgentCapabilityRegistry: "0xc749a117C3222Fee7a000161c01756EEFb027981" as `0x${string}`,
-  OrchestratorEscrow: "0x4ca8EdA765c2d768d0b0FDe277bf2b973989246c" as `0x${string}`,
+  AgentCapabilityRegistry: "0x44E32907C52E8ee58ceB12C7bBC39bbc916DB73c" as `0x${string}`,
+  OrchestratorEscrow: "0x10916060550c3B691288442CE702e2E5cB32fD1C" as `0x${string}`,
 };
 
 // ── Wagmi Config ──────────────────────────────────────────────────────────────
@@ -110,6 +110,16 @@ export const ESCROW_ABI = [
       { name: "taskId", type: "uint256", indexed: true },
       { name: "requester", type: "address", indexed: true },
       { name: "budget", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    name: "ServiceFeeCharged",
+    type: "event",
+    inputs: [
+      { name: "taskId", type: "uint256", indexed: true },
+      { name: "grossBudget", type: "uint256", indexed: false },
+      { name: "serviceFee", type: "uint256", indexed: false },
+      { name: "netBudget", type: "uint256", indexed: false },
     ],
   },
 ] as const;
