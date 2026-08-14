@@ -124,8 +124,10 @@ export interface OrchestratorEscrowInterface extends Interface {
       | "registry"
       | "renounceRole"
       | "revokeRole"
+      | "serviceFeeBps"
       | "setFeeRecipient"
       | "setPlatformFee"
+      | "setServiceFee"
       | "settleSubtask"
       | "submitDeliverable"
       | "subtasks"
@@ -139,6 +141,7 @@ export interface OrchestratorEscrowInterface extends Interface {
       | "RoleAdminChanged"
       | "RoleGranted"
       | "RoleRevoked"
+      | "ServiceFeeCharged"
       | "SubtaskAssigned"
       | "SubtaskDisputed"
       | "SubtaskSettled"
@@ -230,11 +233,19 @@ export interface OrchestratorEscrowInterface extends Interface {
     values: [BytesLike, AddressLike]
   ): string;
   encodeFunctionData(
+    functionFragment: "serviceFeeBps",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "setFeeRecipient",
     values: [AddressLike]
   ): string;
   encodeFunctionData(
     functionFragment: "setPlatformFee",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "setServiceFee",
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
@@ -314,11 +325,19 @@ export interface OrchestratorEscrowInterface extends Interface {
   ): Result;
   decodeFunctionResult(functionFragment: "revokeRole", data: BytesLike): Result;
   decodeFunctionResult(
+    functionFragment: "serviceFeeBps",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "setFeeRecipient",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
     functionFragment: "setPlatformFee",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "setServiceFee",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -410,6 +429,31 @@ export namespace RoleRevokedEvent {
     role: string;
     account: string;
     sender: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace ServiceFeeChargedEvent {
+  export type InputTuple = [
+    taskId: BigNumberish,
+    grossBudget: BigNumberish,
+    serviceFee: BigNumberish,
+    netBudget: BigNumberish
+  ];
+  export type OutputTuple = [
+    taskId: bigint,
+    grossBudget: bigint,
+    serviceFee: bigint,
+    netBudget: bigint
+  ];
+  export interface OutputObject {
+    taskId: bigint;
+    grossBudget: bigint;
+    serviceFee: bigint;
+    netBudget: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -663,6 +707,8 @@ export interface OrchestratorEscrow extends BaseContract {
     "nonpayable"
   >;
 
+  serviceFeeBps: TypedContractMethod<[], [bigint], "view">;
+
   setFeeRecipient: TypedContractMethod<
     [recipient: AddressLike],
     [void],
@@ -674,6 +720,8 @@ export interface OrchestratorEscrow extends BaseContract {
     [void],
     "nonpayable"
   >;
+
+  setServiceFee: TypedContractMethod<[bps: BigNumberish], [void], "nonpayable">;
 
   settleSubtask: TypedContractMethod<
     [
@@ -878,10 +926,16 @@ export interface OrchestratorEscrow extends BaseContract {
     "nonpayable"
   >;
   getFunction(
+    nameOrSignature: "serviceFeeBps"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "setFeeRecipient"
   ): TypedContractMethod<[recipient: AddressLike], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "setPlatformFee"
+  ): TypedContractMethod<[bps: BigNumberish], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "setServiceFee"
   ): TypedContractMethod<[bps: BigNumberish], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "settleSubtask"
@@ -1000,6 +1054,13 @@ export interface OrchestratorEscrow extends BaseContract {
     RoleRevokedEvent.OutputObject
   >;
   getEvent(
+    key: "ServiceFeeCharged"
+  ): TypedContractEvent<
+    ServiceFeeChargedEvent.InputTuple,
+    ServiceFeeChargedEvent.OutputTuple,
+    ServiceFeeChargedEvent.OutputObject
+  >;
+  getEvent(
     key: "SubtaskAssigned"
   ): TypedContractEvent<
     SubtaskAssignedEvent.InputTuple,
@@ -1085,6 +1146,17 @@ export interface OrchestratorEscrow extends BaseContract {
       RoleRevokedEvent.InputTuple,
       RoleRevokedEvent.OutputTuple,
       RoleRevokedEvent.OutputObject
+    >;
+
+    "ServiceFeeCharged(uint256,uint256,uint256,uint256)": TypedContractEvent<
+      ServiceFeeChargedEvent.InputTuple,
+      ServiceFeeChargedEvent.OutputTuple,
+      ServiceFeeChargedEvent.OutputObject
+    >;
+    ServiceFeeCharged: TypedContractEvent<
+      ServiceFeeChargedEvent.InputTuple,
+      ServiceFeeChargedEvent.OutputTuple,
+      ServiceFeeChargedEvent.OutputObject
     >;
 
     "SubtaskAssigned(uint256,uint256,address,uint256)": TypedContractEvent<

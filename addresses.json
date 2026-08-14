@@ -1,10 +1,10 @@
 {
   "network": "arcTestnet",
   "chainId": 5042002,
-  "deployedAt": "2026-08-10T16:20:19.456Z",
+  "deployedAt": "2026-08-14T12:34:26.518Z",
   "contracts": {
-    "AgentCapabilityRegistry": "0x44E32907C52E8ee58ceB12C7bBC39bbc916DB73c",
-    "OrchestratorEscrow": "0x10916060550c3B691288442CE702e2E5cB32fD1C",
+    "AgentCapabilityRegistry": "0x06CB59840d91EBb8B7F30FAcD3e08679c0B37beB",
+    "OrchestratorEscrow": "0x3EE47f5bAf1355A3A830918e65961B6983E5B6c5",
     "USDC": "0x3600000000000000000000000000000000000000"
   },
   "orchestratorWallets": [
