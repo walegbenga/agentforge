@@ -3,8 +3,8 @@
   "chainId": 2911,
   "deployedAt": "2026-05-21T17:58:08.915Z",
   "contracts": {
-    "AgentCapabilityRegistry": "0xc749a117C3222Fee7a000161c01756EEFb027981",
-    "OrchestratorEscrow": "0x4ca8EdA765c2d768d0b0FDe277bf2b973989246c",
+    "AgentCapabilityRegistry": "0x916F857F63D54Bd94AF2979C3bDE9CdB54631dbf",
+    "OrchestratorEscrow": "0xc749a117C3222Fee7a000161c01756EEFb027981",
     "USDC": "0x3600000000000000000000000000000000000000"
   },
   "arc": {
