@@ -3,8 +3,8 @@
   "chainId": 5042002,
   "deployedAt": "2026-08-14T12:34:26.518Z",
   "contracts": {
-    "AgentCapabilityRegistry": "0x06CB59840d91EBb8B7F30FAcD3e08679c0B37beB",
-    "OrchestratorEscrow": "0x3EE47f5bAf1355A3A830918e65961B6983E5B6c5",
+    "AgentCapabilityRegistry": "0x916F857F63D54Bd94AF2979C3bDE9CdB54631dbf",
+    "OrchestratorEscrow": "0x269D28e7a4f46dB3a9Dc3dE650AA30Bbc2390081",
     "USDC": "0x3600000000000000000000000000000000000000"
   },
   "orchestratorWallets": [
