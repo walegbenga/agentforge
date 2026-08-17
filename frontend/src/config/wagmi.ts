@@ -47,8 +47,8 @@ export const arcTestnet = defineChain({
 
 export const CONTRACTS = {
   USDC: "0x3600000000000000000000000000000000000000" as `0x${string}`,
-  AgentCapabilityRegistry: "0x916F857F63D54Bd94AF2979C3bDE9CdB54631dbf" as `0x${string}`,
-  OrchestratorEscrow: "0x269D28e7a4f46dB3a9Dc3dE650AA30Bbc2390081" as `0x${string}`,
+  AgentCapabilityRegistry: "0xA804fdA286799417326Ce74D57A2054aB4eBc2D8" as `0x${string}`,
+  OrchestratorEscrow: "0x75A4f48Ca4C3a74c0760ecdad9135409325D0C53" as `0x${string}`,
 };
 
 // ── Wagmi Config ──────────────────────────────────────────────────────────────
