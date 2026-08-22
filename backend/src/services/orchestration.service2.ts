@@ -19,26 +19,17 @@ import type {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Cost-tiered model routing. openai/gpt-oss-120b (~$0.15/$0.60 per M
+// Cost-tiered model routing. llama-3.3-70b-versatile ($0.59/$0.79 per M
 // input/output tokens) is reserved for calls where getting it wrong is
 // expensive — actually generating code, and judging whether generated
-// code is real and complete. openai/gpt-oss-20b (~$0.075/$0.30, roughly
-// 2x cheaper) handles structured, lower-stakes calls: decomposition
-// (follows a JSON schema), generic non-code evaluation, and the
-// integration yes/no check. This exists because the platform's real cost
-// is these LLM calls, not a percentage of task budgets — see the service
-// fee added to OrchestratorEscrow.sol for the other half of that fix.
-//
-// ⚠️ 2026-08: the original models used here (llama-3.3-70b-versatile,
-// llama-3.1-8b-instant) were deprecated by Groq on 2026-06-17 — that's
-// what a "model_not_found" 404 from Groq means if you see one again.
-// These are Groq's own recommended replacements as of this fix; check
-// https://console.groq.com/docs/models for current availability before
-// assuming these two are still correct months from now — Groq's lineup
-// changes faster than most providers, and this is the second time in
-// this project's life the model IDs have gone stale under it.
-const STRONG_MODEL = "openai/gpt-oss-120b";
-const CHEAP_MODEL = "openai/gpt-oss-20b";
+// code is real and complete. llama-3.1-8b-instant ($0.05/$0.08, ~10x
+// cheaper) handles structured, lower-stakes calls: decomposition (follows
+// a JSON schema), generic non-code evaluation, and the integration
+// yes/no check. This exists because the platform's real cost is these
+// LLM calls, not a percentage of task budgets — see the service fee
+// added to OrchestratorEscrow.sol for the other half of that fix.
+const STRONG_MODEL = "llama-3.3-70b-versatile";
+const CHEAP_MODEL = "llama-3.1-8b-instant";
 
 export class OrchestrationEngine {
   async createAndRunTask(params: {
