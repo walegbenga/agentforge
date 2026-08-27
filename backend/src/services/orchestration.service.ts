@@ -913,12 +913,6 @@ Rules:
    * Waits for whatever Groq actually tells us to wait (parsed from the
    * error message), with jitter so concurrent subtasks hitting the same
    * limit don't all wake up and collide again at the same instant.
-   *
-   * Distinct from a 413 ("request too large for model ... TPM"), which
-   * means a SINGLE request already exceeds the account's entire per-
-   * minute ceiling on its own — no amount of waiting fixes that, so
-   * retrying it is pure wasted time. That one fails immediately with a
-   * clear message instead of silently behaving like a normal rate limit.
    */
   private async callGroqWithRateLimitRetry(
     params: ChatCompletionCreateParamsNonStreaming,
@@ -928,13 +922,6 @@ Rules:
       try {
         return await groq.chat.completions.create(params);
       } catch (err: any) {
-        const isOversizedRequest = err?.status === 413;
-        if (isOversizedRequest) {
-          throw new Error(
-            `Request too large for this model's per-minute token limit (not a transient rate limit — retrying won't help). Reduce max_tokens or prompt size. Original: ${err?.message || err}`
-          );
-        }
-
         const isRateLimit =
           err?.status === 429 ||
           err?.error?.code === "rate_limit_exceeded" ||
@@ -982,37 +969,15 @@ Rules:
         return current;
       };
 
-      // ⚠️ This account's TPM ceiling (checked live via 413 errors from
-      // Groq) is tight enough that dependency context — full prior module
-      // code, embedded unconditionally — was alone enough to blow the
-      // limit before a single output token was even requested. Cap it to
-      // a fixed total budget, split fairly across however many
-      // dependencies exist, rather than growing unboundedly with more
-      // modules or a code-review that depends on several of them.
-      const TOTAL_CONTEXT_BUDGET_CHARS = 6000; // ≈1500 tokens, rough 4 chars/token
-      const resolvedDeps = (subtask.dependsOn || [])
+      const dependencyContext = (subtask.dependsOn || [])
         .map((idx) => resolveLatestAttempt(idx))
-        .filter((s): s is Subtask => !!s && !!s.deliverable);
-      const perDepBudget = resolvedDeps.length > 0 ? Math.floor(TOTAL_CONTEXT_BUDGET_CHARS / resolvedDeps.length) : 0;
-
-      const dependencyContext = resolvedDeps
-        .map((s) => {
-          const content = s.deliverable!;
-          const truncated = content.length > perDepBudget
-            ? content.slice(0, perDepBudget) + `\n... [truncated for length — ${content.length - perDepBudget} more characters not shown]`
-            : content;
-          return `--- Output from "${s.capability}" (${s.description}) ---\n${truncated}`;
-        })
+        .filter((s): s is Subtask => !!s && !!s.deliverable)
+        .map((s) => `--- Output from "${s.capability}" (${s.description}) ---\n${s.deliverable}`)
         .join("\n\n");
 
-      // Output budget also has to leave room for input/prompt tokens
-      // within the SAME per-minute ceiling — max_tokens: 8000 alone used
-      // to meet or exceed this account's entire TPM limit before a
-      // single input token was counted. Reduced to something that
-      // actually fits alongside real prompt overhead.
       const response = await this.callGroqWithRateLimitRetry({
         model: ["app-builder", "code-review", "planning"].includes(subtask.capability) ? STRONG_MODEL : CHEAP_MODEL,
-        max_tokens: subtask.capability === "app-builder" ? 3000 : 2000,
+        max_tokens: subtask.capability === "app-builder" ? 8000 : 4000,
         temperature: 0.5,
         messages: [
           {
