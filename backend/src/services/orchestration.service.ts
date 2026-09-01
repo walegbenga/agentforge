@@ -913,6 +913,12 @@ Rules:
    * Waits for whatever Groq actually tells us to wait (parsed from the
    * error message), with jitter so concurrent subtasks hitting the same
    * limit don't all wake up and collide again at the same instant.
+   *
+   * Distinct from a 413 ("request too large for model ... TPM"), which
+   * means a SINGLE request already exceeds the account's entire per-
+   * minute ceiling on its own — no amount of waiting fixes that, so
+   * retrying it is pure wasted time. That one fails immediately with a
+   * clear message instead of silently behaving like a normal rate limit.
    */
   private async callGroqWithRateLimitRetry(
     params: ChatCompletionCreateParamsNonStreaming,
@@ -922,6 +928,13 @@ Rules:
       try {
         return await groq.chat.completions.create(params);
       } catch (err: any) {
+        const isOversizedRequest = err?.status === 413;
+        if (isOversizedRequest) {
+          throw new Error(
+            `Request too large for this model's per-minute token limit (not a transient rate limit — retrying won't help). Reduce max_tokens or prompt size. Original: ${err?.message || err}`
+          );
+        }
+
         const isRateLimit =
           err?.status === 429 ||
           err?.error?.code === "rate_limit_exceeded" ||
@@ -969,15 +982,46 @@ Rules:
         return current;
       };
 
-      const dependencyContext = (subtask.dependsOn || [])
+      // ⚠️ This account's TPM ceiling (checked live via 413 errors from
+      // Groq) is tight enough that dependency context — full prior module
+      // code, embedded unconditionally — was alone enough to blow the
+      // limit before a single output token was even requested. Cap it to
+      // a fixed total budget, split fairly across however many
+      // dependencies exist, rather than growing unboundedly with more
+      // modules or a code-review that depends on several of them.
+      // Budget shape differs by capability: app-builder needs a LARGE
+      // output (the code itself) so input must stay small, or the total
+      // blows the TPM ceiling. code-review needs the OPPOSITE — its own
+      // output is just a short prose review (max_tokens: 2000), so it can
+      // afford a much bigger input budget to actually see the code it's
+      // reviewing. The earlier flat 3000-char budget starved code-review
+      // down to almost nothing when it had multiple app-builder modules
+      // to review, which is why it was legitimately reporting "the source
+      // files are missing" — it wasn't wrong, it just wasn't given enough.
+      const TOTAL_CONTEXT_BUDGET_CHARS = subtask.capability === "code-review" ? 12000 : 3000;
+      const resolvedDeps = (subtask.dependsOn || [])
         .map((idx) => resolveLatestAttempt(idx))
-        .filter((s): s is Subtask => !!s && !!s.deliverable)
-        .map((s) => `--- Output from "${s.capability}" (${s.description}) ---\n${s.deliverable}`)
+        .filter((s): s is Subtask => !!s && !!s.deliverable);
+      const perDepBudget = resolvedDeps.length > 0 ? Math.floor(TOTAL_CONTEXT_BUDGET_CHARS / resolvedDeps.length) : 0;
+
+      const dependencyContext = resolvedDeps
+        .map((s) => {
+          const content = s.deliverable!;
+          const truncated = content.length > perDepBudget
+            ? content.slice(0, perDepBudget) + `\n... [truncated for length — ${content.length - perDepBudget} more characters not shown]`
+            : content;
+          return `--- Output from "${s.capability}" (${s.description}) ---\n${truncated}`;
+        })
         .join("\n\n");
 
+      // Output budget also has to leave room for input/prompt tokens
+      // within the SAME per-minute ceiling — max_tokens: 8000 alone used
+      // to meet or exceed this account's entire TPM limit before a
+      // single input token was counted. Reduced to something that
+      // actually fits alongside real prompt overhead.
       const response = await this.callGroqWithRateLimitRetry({
         model: ["app-builder", "code-review", "planning"].includes(subtask.capability) ? STRONG_MODEL : CHEAP_MODEL,
-        max_tokens: subtask.capability === "app-builder" ? 8000 : 4000,
+        max_tokens: subtask.capability === "app-builder" ? 4500 : 2000,
         temperature: 0.5,
         messages: [
           {
@@ -1006,9 +1050,11 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
 <complete file contents>
 \`\`\`
 
+- Your response has a hard length limit. If you are not certain everything will fit, WRITE FEWER, SMALLER FILES rather than risk running out of room mid-file — an incomplete submission fails outright, a smaller-but-complete one does not. Do not plan an ambitious file list you might not finish.
+- OUTPUT ORDER MATTERS: write package.json/requirements.txt FIRST, then README.md SECOND, THEN your source files. These first two are required for this to be accepted at all — if you're going to run out of room, it must never be these two.
 - Include every file needed: source files, package.json/requirements.txt, a README.md with setup + run instructions, and config files. A "working app" means someone can follow the README and actually run it.
 - Do not add commentary between files beyond the "### FILE:" heading — keep narrative explanation to a short intro before the first file.
-- If a spec was provided below, build to that spec — implement the full feature set it describes, not just the minimum literally stated in the one-line task.
+- If a spec was provided below, build to that spec — implement the full feature set it describes, not just the minimum literally stated in the one-line task. But favor a smaller COMPLETE submission over a larger incomplete one — see the length warning above.
 - SECRETS & CREDENTIALS: never invent real-looking API keys, database URLs, or secrets. Read them from environment variables (e.g. process.env.SECRET_KEY) with a clearly-labeled placeholder or empty default. Your README MUST include an "## Environment Setup" section listing every required environment variable, what it's for, and concrete instructions to obtain or generate a real value (e.g. "SECRET_KEY — run \`openssl rand -hex 32\` and paste the output" or "DATABASE_URL — create a free Postgres instance on Railway/Supabase/Neon and copy its connection string"). This is what makes the app genuinely complete — a real project never ships hardcoded secrets, and needing the user to configure their own credentials is expected, not a gap, as long as you tell them exactly how.
 - If output from a PREVIOUS app-builder module is provided below, you are EXTENDING that codebase, not starting fresh: reuse its existing files, package.json, and navigation/routing structure. Only re-output a file (with its same path) if you are actually modifying it — output that file's FULL updated contents, which will replace the previous version. Do not invent a second, incompatible project structure alongside it. Only include your own README.md if the previous module didn't already provide one.` : ""}${subtask.capability === "code-review" ? `
 
@@ -1070,6 +1116,10 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
       return this.evaluateAppBuilderDeliverable(task, subtask);
     }
 
+    const truncatedDeliverable = (subtask.deliverable || "").length > 6000
+      ? subtask.deliverable!.slice(0, 6000) + `\n... [truncated for length — ${subtask.deliverable!.length - 6000} more characters not shown]`
+      : subtask.deliverable;
+
     const response = await this.callGroqWithRateLimitRetry({
       model: CHEAP_MODEL,
       max_tokens: 500,
@@ -1081,7 +1131,7 @@ APP-BUILDER OUTPUT FORMAT (required — this output is parsed programmatically):
 
 ORIGINAL TASK: ${task.description}
 SUBTASK: ${subtask.description}
-DELIVERABLE: ${subtask.deliverable}
+DELIVERABLE: ${truncatedDeliverable}
 
 Return ONLY valid JSON (no markdown):
 {
@@ -1136,6 +1186,16 @@ Return ONLY valid JSON (no markdown):
 
     const fileManifest = parsed.files.map((f) => `- ${f.path} (${f.content.split("\n").length} lines)`).join("\n");
 
+    // The generated submission can be close to app-builder's own max_tokens
+    // ceiling (~4500 tokens ≈ 18000 chars) — embedding it whole here, on
+    // top of this rubric's own instructions, was the actual cause of the
+    // 413 persisting even after the generation call itself was fixed.
+    // This is a judgment call, not a rebuild — a large-but-representative
+    // excerpt is enough for the model to assess real completeness.
+    const truncatedSubmission = subtask.deliverable!.length > 10000
+      ? subtask.deliverable!.slice(0, 10000) + `\n... [truncated for length — ${subtask.deliverable!.length - 10000} more characters not shown, but the file manifest above lists everything that was submitted]`
+      : subtask.deliverable!;
+
     const response = await this.callGroqWithRateLimitRetry({
       model: STRONG_MODEL,
       max_tokens: 500,
@@ -1167,7 +1227,7 @@ A submission that correctly reads secrets from the environment AND documents set
 Be genuinely strict on real completeness — approve only if this would actually run and do what was asked once the documented setup steps are followed, not if it merely "looks like" an app. But do not confuse "requires the user to configure their own credentials" with "incomplete."
 
 FULL SUBMISSION:
-${subtask.deliverable}
+${truncatedSubmission}
 
 Return ONLY valid JSON (no markdown):
 {
